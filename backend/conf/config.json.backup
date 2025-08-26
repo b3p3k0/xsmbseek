@@ -1,0 +1,58 @@
+{
+  "shodan": {
+    "api_key": "HETpWECrWPwosEfASyHNgQ9hVSmp7VIf",
+    "query_limits": {
+      "max_results": 5,
+      "timeout": 3
+    },
+    "query_components": {
+      "base_query": "smb authentication: disabled",
+      "product_filter": "product:\"Samba\"",
+      "additional_exclusions": ["-\"DSL\""],
+      "use_organization_exclusions": true
+    }
+  },
+  "workflow": {
+    "rescan_after_days": 30,
+    "pause_between_steps": false,
+    "auto_collect_files": true,
+    "skip_failed_hosts": true
+  },
+  "connection": {
+    "timeout": 30,
+    "port_check_timeout": 10,
+    "rate_limit_delay": 3,
+    "share_access_delay": 7
+  },
+  "security": {
+    "ransomware_indicators": [
+      "!want_to_cry.txt",
+      "0XXX_DECRYPTION_README.TXT",
+      "HOW_TO_DECRYPT_FILES.txt",
+      "DECRYPT_INSTRUCTIONS.txt",
+      "_DECRYPT_INFO_.txt",
+      "README_FOR_DECRYPT.txt"
+    ],
+    "exclusion_file": "conf/exclusion_list.txt"
+  },
+  "database": {
+    "path": "smbseek.db",
+    "backup_enabled": true,
+    "backup_directory": "db_backups",
+    "max_backup_files": 30
+  },
+  "output": {
+    "colors_enabled": true,
+    "verbose_by_default": false,
+    "executive_summary": true
+  },
+  "countries": {
+    "US": "United States",
+    "GB": "United Kingdom", 
+    "CA": "Canada",
+    "IE": "Ireland",
+    "AU": "Australia",
+    "NZ": "New Zealand",
+    "ZA": "South Africa"
+  }
+}

@@ -1,0 +1,294 @@
+================================================================================
+                    SMBSeek GUI Feedback Template
+================================================================================
+
+INSTRUCTIONS
+------------
+This template helps you provide structured feedback that assists the development
+team in improving SMBSeek. Answer what you can based on your testing scope - 
+you don't need to complete every section.
+
+Be specific with examples when describing issues or suggestions.
+Focus on functionality and productivity impacts over minor visual details.
+
+Date: ___________
+Tester Name: _________________ 
+Testing Role: [ ] Manager [ ] Novice [ ] Intermediate [ ] Expert
+Time Spent Testing: _______ minutes
+
+================================================================================
+SECTION 1: ENVIRONMENT & SETUP
+================================================================================
+
+1.1 Environment Setup Experience
+---------------------------------
+Did the setup instructions work correctly? [ ] Yes [ ] No [ ] Partial
+
+If issues encountered, describe:
+_________________________________________________________________
+_________________________________________________________________
+
+Time to complete setup: _______ minutes
+Difficulty level: [ ] Easy [ ] Moderate [ ] Difficult [ ] Very Difficult
+
+Suggestions for setup improvement:
+_________________________________________________________________
+_________________________________________________________________
+
+1.2 Application Startup
+------------------------
+Did the GUI start successfully? [ ] Yes [ ] No
+If no, what error messages appeared:
+_________________________________________________________________
+
+Dashboard loaded completely? [ ] Yes [ ] No [ ] Partially
+Any missing or broken elements on startup:
+_________________________________________________________________
+
+================================================================================
+SECTION 2: CORE FUNCTIONALITY ASSESSMENT
+================================================================================
+
+2.1 Scan Process (Scan → Peep → Snag)
+--------------------------------------
+Were you able to successfully:
+- Initiate a scan? [ ] Yes [ ] No [ ] Not Tested
+- Monitor scan progress? [ ] Yes [ ] No [ ] Not Tested  
+- View completed results? [ ] Yes [ ] No [ ] Not Tested
+- Access detailed server information? [ ] Yes [ ] No [ ] Not Tested
+
+Most confusing aspect of scan process:
+_________________________________________________________________
+
+Most intuitive aspect of scan process:
+_________________________________________________________________
+
+Did the scan results make sense and appear complete? [ ] Yes [ ] No [ ] Unsure
+Explain:
+_________________________________________________________________
+
+2.2 Data Persistence & Retrieval
+---------------------------------
+After scanning, could you find the new data in the database? [ ] Yes [ ] No
+
+Did dashboard metrics update correctly? [ ] Yes [ ] No [ ] Not Tested
+
+Could you retrieve and view historical data? [ ] Yes [ ] No [ ] Not Tested
+
+Any data that seemed missing, incorrect, or corrupted:
+_________________________________________________________________
+
+2.3 Information Accessibility
+------------------------------
+How quickly could you find key information?
+- Total servers in database: _______ seconds
+- Number of vulnerable servers: _______ seconds  
+- Details about specific server: _______ seconds
+- Recent scan results: _______ seconds
+
+Rate information findability: [ ] Excellent [ ] Good [ ] Fair [ ] Poor
+
+================================================================================
+SECTION 3: USER INTERFACE & WORKFLOW EFFICIENCY
+================================================================================
+
+3.1 Navigation & Discoverability
+----------------------------------
+Could you navigate without referring to documentation? [ ] Yes [ ] Partially [ ] No
+
+Which features were hardest to discover:
+_________________________________________________________________
+
+Which navigation paths felt most natural:
+_________________________________________________________________
+
+Any areas where you got "lost" or confused:
+_________________________________________________________________
+
+3.2 Window Sizing & Layout
+---------------------------
+Were all UI elements visible by default? [ ] Yes [ ] No
+
+Specific sizing issues encountered:
+- Main window: [ ] OK [ ] Too small [ ] Too large
+- Scan dialog: [ ] OK [ ] Too small [ ] Too large  
+- Server list: [ ] OK [ ] Too small [ ] Too large
+- Configuration editor: [ ] OK [ ] Too small [ ] Too large
+
+Elements that were cut off or hard to access:
+_________________________________________________________________
+
+3.3 Interaction Quality
+-----------------------
+Did buttons and controls respond as expected? [ ] Yes [ ] Mostly [ ] No
+
+Double-click functionality in server list:
+- Worked correctly? [ ] Yes [ ] No [ ] Not tested
+- Showed same info as "View Details" button? [ ] Yes [ ] No [ ] Not tested
+
+Any clickable elements that didn't work or were confusing:
+_________________________________________________________________
+
+================================================================================
+SECTION 4: WORKFLOW & PRODUCTIVITY ASSESSMENT  
+================================================================================
+
+4.1 Task Efficiency
+--------------------
+For your primary use case, how long did it take to:
+- Get overview of current security status: _______ minutes
+- Find specific server information: _______ minutes
+- Complete a scan and review results: _______ minutes
+- Export data for analysis: _______ minutes
+
+Did the tool improve your productivity for SMB security tasks? [ ] Yes [ ] No
+
+4.2 Decision-Making Support
+---------------------------
+Could you easily identify:
+- Which servers need immediate attention? [ ] Yes [ ] No [ ] Unclear
+- Geographic distribution of risks? [ ] Yes [ ] No [ ] Unclear
+- Trends over time? [ ] Yes [ ] No [ ] Unclear
+
+What business/security decisions could you make with this information:
+_________________________________________________________________
+_________________________________________________________________
+
+4.3 Workflow Friction Points
+-----------------------------
+What took longer than expected:
+_________________________________________________________________
+
+Where did you need to repeat steps unnecessarily:
+_________________________________________________________________
+
+What information did you need that wasn't easily available:
+_________________________________________________________________
+
+================================================================================
+SECTION 5: RELIABILITY & ERROR HANDLING
+================================================================================
+
+5.1 Error Experiences
+----------------------
+Did you encounter any errors? [ ] Yes [ ] No
+
+If yes, describe each error:
+Error 1: _________________________________________________________
+Was the error message helpful? [ ] Yes [ ] No
+Could you recover/continue? [ ] Yes [ ] No
+
+Error 2: _________________________________________________________  
+Was the error message helpful? [ ] Yes [ ] No
+Could you recover/continue? [ ] Yes [ ] No
+
+5.2 System Stability
+---------------------
+Did the application crash or freeze? [ ] Yes [ ] No
+If yes, what were you doing when it happened:
+_________________________________________________________________
+
+Any operations that felt slow or unresponsive:
+_________________________________________________________________
+
+How would you rate overall system stability?
+[ ] Excellent [ ] Good [ ] Fair [ ] Poor [ ] Unusable
+
+================================================================================
+SECTION 6: FEATURE PRIORITIES & IMPROVEMENTS
+================================================================================
+
+6.1 Most Valuable Features
+---------------------------
+Which features provided the most value:
+1. _______________________________________________________________
+2. _______________________________________________________________  
+3. _______________________________________________________________
+
+Which features seemed unnecessary or confusing:
+_________________________________________________________________
+
+6.2 Missing Functionality
+--------------------------
+What capabilities do you wish the tool had:
+_________________________________________________________________
+_________________________________________________________________
+
+What would make this tool significantly more useful:
+_________________________________________________________________
+_________________________________________________________________
+
+6.3 Improvement Priorities
+---------------------------
+If you could fix three things, what would they be:
+1. _______________________________________________________________
+2. _______________________________________________________________
+3. _______________________________________________________________
+
+================================================================================
+SECTION 7: OVERALL ASSESSMENT
+================================================================================
+
+7.1 User Experience Rating
+---------------------------
+Overall satisfaction with the tool:
+[ ] Excellent [ ] Good [ ] Fair [ ] Poor [ ] Unusable
+
+Would you recommend this tool to colleagues? [ ] Yes [ ] No [ ] Maybe
+
+Likelihood you would use this tool regularly:  
+[ ] Very Likely [ ] Likely [ ] Unsure [ ] Unlikely [ ] Very Unlikely
+
+7.2 Tool Maturity Assessment
+-----------------------------
+Does the tool feel ready for regular use? [ ] Yes [ ] No [ ] Almost
+
+What needs to happen before you'd rely on it for important work:
+_________________________________________________________________
+_________________________________________________________________
+
+7.3 Comparison to Alternatives
+-------------------------------
+How does this compare to your current SMB security workflow:
+[ ] Much Better [ ] Better [ ] About the Same [ ] Worse [ ] Much Worse
+
+Specific advantages over current methods:
+_________________________________________________________________
+
+Specific disadvantages compared to current methods:
+_________________________________________________________________
+
+================================================================================
+SECTION 8: ADDITIONAL FEEDBACK
+================================================================================
+
+8.1 Free-Form Comments
+-----------------------
+Anything else you want the development team to know:
+_________________________________________________________________
+_________________________________________________________________
+_________________________________________________________________
+_________________________________________________________________
+
+8.2 Testing Context
+--------------------
+Describe your testing environment/conditions:
+_________________________________________________________________
+
+Any unusual circumstances that might have affected your experience:
+_________________________________________________________________
+
+8.3 Follow-up Availability
+---------------------------
+Available for follow-up questions? [ ] Yes [ ] No
+
+Preferred contact method: ______________________________
+
+Best times to reach you: ______________________________
+
+================================================================================
+END OF FEEDBACK TEMPLATE - THANK YOU!
+================================================================================
+
+Please save this completed template and submit to the development team.
+Your feedback directly improves the tool for all users.
