@@ -31,15 +31,15 @@ class BackendInterface:
     and user-friendly progress updates.
     """
     
-    def __init__(self, backend_path: str = "../backend"):
+    def __init__(self, backend_path: str = "./smbseek"):
         """
         Initialize backend interface.
         
         Args:
-            backend_path: Path to backend directory relative to GUI
+            backend_path: Path to SMBSeek installation directory
             
-        Design Decision: Default to relative path for development environment,
-        but allow override for different deployment scenarios.
+        Design Decision: Default to ./smbseek for new structure, but allow 
+        complete override for different deployment scenarios.
         """
         self.backend_path = Path(backend_path).resolve()
         self.cli_script = self.backend_path / "smbseek.py"
@@ -51,7 +51,8 @@ class BackendInterface:
         
         # Mock mode for testing without backend
         self.mock_mode = False
-        self.mock_data_path = Path("../test_data/mock_responses")
+        # Use gui directory for mock data (relative to where GUI components are)
+        self.mock_data_path = Path(__file__).parent.parent / "test_data" / "mock_responses"
         
         # Timeout configuration - loaded from config with environment override support
         self.default_timeout = None  # No timeout by default

@@ -306,7 +306,8 @@ class DatabaseReader:
         Design Decision: Single query optimized for dashboard performance
         with caching to reduce database load during frequent updates.
         """
-        cache_key = "dashboard_summary"
+        # Include database modification time in cache key for automatic invalidation
+        cache_key = f"dashboard_summary_{self._get_db_modified_time()}"
         
         if self._is_cached(cache_key):
             return self.cache[cache_key]
@@ -342,12 +343,14 @@ class DatabaseReader:
     def _query_dashboard_summary(self) -> Dict[str, Any]:
         """Execute dashboard summary query."""
         with self._get_connection() as conn:
-            # Get basic counts
+            # Fixed query - counts unique shares only (no duplicates from multiple sessions)
             basic_query = """
             SELECT 
                 (SELECT COUNT(*) FROM smb_servers WHERE status = 'active') as total_servers,
-                (SELECT COUNT(*) FROM share_access WHERE accessible = 1) as accessible_shares,
-                (SELECT COUNT(*) FROM vulnerabilities WHERE severity IN ('high', 'critical') AND status = 'open') as high_risk_vulnerabilities
+                (SELECT COUNT(DISTINCT CONCAT(server_id, '|', share_name)) 
+                 FROM share_access WHERE accessible = 1) as accessible_shares,
+                (SELECT COUNT(*) FROM vulnerabilities 
+                 WHERE severity IN ('high', 'critical') AND status = 'open') as high_risk_vulnerabilities
             """
             
             result = conn.execute(basic_query).fetchone()
@@ -355,13 +358,17 @@ class DatabaseReader:
             # Get recent discoveries from most recent completed scan session
             recent_discoveries_query = """
             SELECT 
-                s.successful_targets as servers_discovered,
-                (SELECT COUNT(*) FROM share_access sa 
-                 WHERE sa.session_id = s.id AND sa.accessible = 1) as servers_accessible
-            FROM scan_sessions s
-            WHERE s.status = 'completed' AND s.successful_targets > 0
-            ORDER BY s.timestamp DESC 
-            LIMIT 1
+                ss.successful_targets as servers_discovered,
+                COUNT(DISTINCT CASE WHEN sa.accessible = 1 THEN CONCAT(sa.server_id, '|', sa.share_name) END) as shares_accessible
+            FROM scan_sessions ss
+            LEFT JOIN share_access sa ON sa.session_id = ss.id
+            WHERE ss.status = 'completed' AND ss.successful_targets > 0
+              AND ss.timestamp = (
+                  SELECT MAX(timestamp) 
+                  FROM scan_sessions 
+                  WHERE status = 'completed' AND successful_targets > 0
+              )
+            GROUP BY ss.id, ss.successful_targets
             """
             recent_result = conn.execute(recent_discoveries_query).fetchone()
             
@@ -376,7 +383,7 @@ class DatabaseReader:
             # Format recent discoveries data
             if recent_result:
                 discovered = recent_result["servers_discovered"] or 0
-                accessible = recent_result["servers_accessible"] or 0
+                accessible = recent_result["shares_accessible"] or 0
                 recent_discoveries = {
                     "discovered": discovered,
                     "accessible": accessible,
@@ -384,8 +391,9 @@ class DatabaseReader:
                 }
             else:
                 recent_discoveries = {
-                    "display": "--",
-                    "warning": "Cannot load recent scan results"
+                    "discovered": 0,
+                    "accessible": 0,
+                    "display": "--"
                 }
             
             return {
@@ -410,7 +418,7 @@ class DatabaseReader:
         Design Decision: Pre-prioritized query returns most critical findings
         for immediate security attention.
         """
-        cache_key = f"top_findings_{limit}"
+        cache_key = f"top_findings_{limit}_{self._get_db_modified_time()}"
         
         if self._is_cached(cache_key):
             return self.cache[cache_key]
@@ -451,21 +459,27 @@ class DatabaseReader:
     def _query_top_findings(self, limit: int) -> List[Dict[str, Any]]:
         """Execute top findings query."""
         with self._get_connection() as conn:
+            # Fixed query - use subquery to prevent share count multiplication
             query = """
             SELECT 
                 s.ip_address,
                 s.country,
                 s.auth_method,
-                COUNT(sa.share_name) as accessible_shares,
+                COALESCE(sa_summary.accessible_shares, 0) as accessible_shares,
                 v.severity,
-                v.title as summary
+                COALESCE(v.title, CONCAT(COALESCE(sa_summary.accessible_shares, 0), ' accessible shares')) as summary
             FROM smb_servers s
-            LEFT JOIN share_access sa ON s.id = sa.server_id AND sa.accessible = 1
+            LEFT JOIN (
+                SELECT 
+                    server_id,
+                    COUNT(CASE WHEN accessible = 1 THEN 1 END) as accessible_shares
+                FROM share_access
+                GROUP BY server_id
+            ) sa_summary ON s.id = sa_summary.server_id
             LEFT JOIN vulnerabilities v ON s.id = v.server_id AND v.status = 'open'
             WHERE s.status = 'active'
-            GROUP BY s.id, s.ip_address, s.country, s.auth_method, v.severity, v.title
             ORDER BY 
-                CASE v.severity 
+                CASE COALESCE(v.severity, 'none')
                     WHEN 'critical' THEN 1
                     WHEN 'high' THEN 2
                     WHEN 'medium' THEN 3
@@ -497,7 +511,7 @@ class DatabaseReader:
         Returns:
             Dictionary mapping country codes to server counts
         """
-        cache_key = "country_breakdown"
+        cache_key = f"country_breakdown_{self._get_db_modified_time()}"
         
         if self._is_cached(cache_key):
             return self.cache[cache_key]
@@ -538,7 +552,7 @@ class DatabaseReader:
         Returns:
             List of activity records with timestamps and counts
         """
-        cache_key = f"recent_activity_{days}"
+        cache_key = f"recent_activity_{days}_{self._get_db_modified_time()}"
         
         if self._is_cached(cache_key):
             return self.cache[cache_key]
@@ -647,7 +661,7 @@ class DatabaseReader:
             
             total_count = conn.execute(count_query, params).fetchone()["total"]
             
-            # Data query
+            # Corrected query - proper aggregation to prevent share count multiplication
             data_query = f"""
             SELECT 
                 s.ip_address,
@@ -656,13 +670,25 @@ class DatabaseReader:
                 s.auth_method,
                 s.last_seen,
                 s.scan_count,
-                COUNT(sa.share_name) as accessible_shares,
-                COUNT(v.id) as vulnerabilities
+                COALESCE(sa_summary.total_shares, 0) as total_shares,
+                COALESCE(sa_summary.accessible_shares, 0) as accessible_shares,
+                COALESCE(v_summary.vulnerabilities, 0) as vulnerabilities
             FROM smb_servers s
-            LEFT JOIN share_access sa ON s.id = sa.server_id AND sa.accessible = 1
-            LEFT JOIN vulnerabilities v ON s.id = v.server_id AND v.status = 'open'
+            LEFT JOIN (
+                SELECT 
+                    server_id,
+                    COUNT(share_name) as total_shares,
+                    COUNT(CASE WHEN accessible = 1 THEN 1 END) as accessible_shares
+                FROM share_access
+                GROUP BY server_id
+            ) sa_summary ON s.id = sa_summary.server_id
+            LEFT JOIN (
+                SELECT server_id, COUNT(*) as vulnerabilities
+                FROM vulnerabilities 
+                WHERE status = 'open'
+                GROUP BY server_id
+            ) v_summary ON s.id = v_summary.server_id
             {where_clause}
-            GROUP BY s.id, s.ip_address, s.country, s.country_code, s.auth_method, s.last_seen, s.scan_count
             ORDER BY s.last_seen DESC
             LIMIT ? OFFSET ?
             """
@@ -678,6 +704,7 @@ class DatabaseReader:
                     "auth_method": row["auth_method"],
                     "last_seen": row["last_seen"],
                     "scan_count": row["scan_count"],
+                    "total_shares": row["total_shares"],
                     "accessible_shares": row["accessible_shares"],
                     "vulnerabilities": row["vulnerabilities"]
                 }
@@ -698,6 +725,19 @@ class DatabaseReader:
         """Cache query result with timestamp."""
         self.cache[key] = data
         self.cache_timestamps[key] = time.time()
+    
+    def _get_db_modified_time(self) -> int:
+        """
+        Get database last modification time for cache invalidation.
+        
+        Returns:
+            Database modification time as integer timestamp
+        """
+        try:
+            import os
+            return int(os.path.getmtime(self.db_path))
+        except:
+            return int(time.time())
     
     def clear_cache(self) -> None:
         """Clear all cached data."""

@@ -691,10 +691,7 @@ class ServerListWindow:
             
             # Share count indicators
             share_count = server.get("accessible_shares", 0)
-            if share_count > 5:
-                self.tree.set(item_id, "Shares", f"📁 {shares}")
-            elif share_count > 0:
-                self.tree.set(item_id, "Shares", f"📂 {shares}")
+            self.tree.set(item_id, "Shares", f"📁 {shares}")
         
         # Update status
         self.count_label.configure(

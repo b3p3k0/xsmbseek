@@ -1,0 +1,17 @@
+{
+  "smbseek": {
+    "path": "./smbseek",
+    "database_path": null
+  },
+  "gui": {
+    "theme": "default",
+    "window_geometry": "800x700+880+370",
+    "interface_mode": "simple",
+    "last_used_config": null
+  },
+  "app": {
+    "version": "1.0.0",
+    "first_run": true,
+    "github_repo": "https://github.com/b3p3k0/smbseek"
+  }
+}
