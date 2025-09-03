@@ -78,9 +78,9 @@ class SettingsManager:
             },
             'backend': {
                 'mock_mode': False,
-                'backend_path': '../backend',
-                'config_path': '../backend/conf/config.json',
-                'database_path': '../backend/smbseek.db',
+                'backend_path': './smbseek',
+                'config_path': './smbseek/conf/config.json',
+                'database_path': './smbseek/smbseek.db',
                 'last_database_path': '',
                 'database_validated': False
             },
@@ -463,7 +463,7 @@ class SettingsManager:
         Returns:
             Backend path (default: '../backend')
         """
-        return self.get_setting('backend.backend_path', '../backend')
+        return self.get_setting('backend.backend_path', './smbseek')
     
     def set_backend_path(self, backend_path: str, validate: bool = True) -> bool:
         """
@@ -495,6 +495,98 @@ class SettingsManager:
                 callback(key_path, old_value, new_value)
             except Exception as e:
                 print(f"Warning: Settings callback error: {e}")
+    
+    def validate_smbseek_installation(self, path: str) -> Dict[str, Any]:
+        """
+        Validate SMBSeek installation at given path.
+        
+        Args:
+            path: Path to SMBSeek installation directory
+            
+        Returns:
+            Validation result with 'valid' bool and 'message' str
+        """
+        import subprocess
+        
+        if not path:
+            return {'valid': False, 'message': 'Path is required'}
+        
+        try:
+            path_obj = Path(path)
+            
+            if not path_obj.exists():
+                return {'valid': False, 'message': 'Path does not exist'}
+            
+            if not path_obj.is_dir():
+                return {'valid': False, 'message': 'Path is not a directory'}
+            
+            # Check for smbseek.py
+            smbseek_script = path_obj / "smbseek.py"
+            if not smbseek_script.exists():
+                return {'valid': False, 'message': 'smbseek.py not found in directory'}
+            
+            # Try to get version
+            try:
+                result = subprocess.run(
+                    ["python", str(smbseek_script), "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    version = result.stdout.strip()
+                    return {'valid': True, 'message': f'Valid SMBSeek installation ({version})'}
+                else:
+                    return {'valid': True, 'message': 'SMBSeek installation found (version check failed)'}
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                return {'valid': True, 'message': 'SMBSeek installation found (version check failed)'}
+                
+        except Exception as e:
+            return {'valid': False, 'message': f'Validation error: {str(e)}'}
+    
+    def get_smbseek_config_path(self) -> str:
+        """
+        Get the SMBSeek configuration file path based on SMBSeek installation path.
+        
+        Returns:
+            Path to SMBSeek config.json file
+        """
+        smbseek_path = self.get_backend_path()
+        return str(Path(smbseek_path) / "conf" / "config.json")
+    
+    def set_smbseek_paths(self, smbseek_path: str, config_path: Optional[str] = None, 
+                         db_path: Optional[str] = None) -> bool:
+        """
+        Set SMBSeek-related paths atomically.
+        
+        Args:
+            smbseek_path: Path to SMBSeek installation
+            config_path: Path to config file (optional, will be derived if not provided)
+            db_path: Path to database file (optional, will be derived if not provided)
+            
+        Returns:
+            True if all paths set successfully
+        """
+        try:
+            # Derive paths if not provided
+            smbseek_pathobj = Path(smbseek_path)
+            
+            if config_path is None:
+                config_path = str(smbseek_pathobj / "conf" / "config.json")
+            
+            if db_path is None:
+                db_path = str(smbseek_pathobj / "smbseek.db")
+            
+            # Set all paths
+            success1 = self.set_backend_path(smbseek_path)
+            success2 = self.set_setting('backend.config_path', config_path)
+            success3 = self.set_database_path(db_path)
+            
+            return success1 and success2 and success3
+            
+        except Exception as e:
+            print(f"Error setting SMBSeek paths: {e}")
+            return False
     
     def get_statistics(self) -> Dict[str, Any]:
         """

@@ -44,6 +44,10 @@ class BackendInterface:
         self.backend_path = Path(backend_path).resolve()
         self.cli_script = self.backend_path / "smbseek.py"
         self.config_path = self.backend_path / "conf" / "config.json"
+        self.config_example_path = self.backend_path / "conf" / "config.json.example"
+        
+        # Ensure configuration file exists
+        self._ensure_config_exists()
         
         # Progress tracking for long-running operations
         self.progress_queue = queue.Queue()
@@ -60,6 +64,115 @@ class BackendInterface:
         self._load_timeout_configuration()
         
         self._validate_backend()
+    
+    def _ensure_config_exists(self) -> None:
+        """
+        Ensure SMBSeek configuration file exists, creating from example if needed.
+        
+        Raises:
+            RuntimeError: If configuration cannot be created or validated
+        """
+        if not self.config_path.exists():
+            if self.config_example_path.exists():
+                # Copy example config
+                import shutil
+                shutil.copy2(self.config_example_path, self.config_path)
+            else:
+                raise RuntimeError(f"SMBSeek configuration template not found at {self.config_example_path}")
+    
+    def _validate_config(self) -> Dict[str, Any]:
+        """
+        Validate SMBSeek configuration and return validation results.
+        
+        Returns:
+            Dictionary with validation results and warnings
+        """
+        validation_result = {
+            "valid": True,
+            "warnings": [],
+            "errors": []
+        }
+        
+        if not self.config_path.exists():
+            validation_result["valid"] = False
+            validation_result["errors"].append("Configuration file does not exist")
+            return validation_result
+        
+        try:
+            with open(self.config_path, 'r') as f:
+                config = json.load(f)
+            
+            # Check for required Shodan API key
+            shodan_key = config.get('shodan', {}).get('api_key', '')
+            if not shodan_key or shodan_key == 'YOUR_API_KEY_HERE':
+                validation_result["warnings"].append(
+                    "Shodan API key not configured - discovery functionality will be limited"
+                )
+            
+            # Validate country codes if specified
+            if 'countries' in config:
+                country_codes = config['countries']
+                if not isinstance(country_codes, dict) or not country_codes:
+                    validation_result["warnings"].append("No country codes configured")
+            
+        except json.JSONDecodeError as e:
+            validation_result["valid"] = False
+            validation_result["errors"].append(f"Invalid JSON in configuration: {e}")
+        except Exception as e:
+            validation_result["valid"] = False
+            validation_result["errors"].append(f"Error reading configuration: {e}")
+        
+        return validation_result
+    
+    def _extract_error_details(self, full_output: str, cmd: List[str]) -> str:
+        """
+        Extract meaningful error details from SMBSeek CLI output.
+        
+        Args:
+            full_output: Complete output from failed command
+            cmd: The command that failed
+            
+        Returns:
+            User-friendly error message with actual CLI error details
+        """
+        lines = full_output.split('\n')
+        
+        # Look for common error patterns
+        error_indicators = [
+            'error:', 'Error:', 'ERROR:',
+            'failed:', 'Failed:', 'FAILED:',
+            'exception:', 'Exception:', 'EXCEPTION:',
+            'traceback', 'Traceback',
+            'invalid', 'Invalid', 'INVALID',
+            'missing', 'Missing', 'MISSING',
+            'not found', 'Not found', 'NOT FOUND'
+        ]
+        
+        # Extract relevant error lines
+        error_lines = []
+        for line in lines:
+            line_lower = line.lower().strip()
+            if any(indicator.lower() in line_lower for indicator in error_indicators):
+                # Clean up ANSI codes and whitespace
+                clean_line = re.sub(r'\x1b\[[0-9;]*m', '', line).strip()
+                if clean_line:
+                    error_lines.append(clean_line)
+        
+        if error_lines:
+            # Return first few error lines
+            return '\n'.join(error_lines[:3])
+        
+        # If no specific errors found, look for last non-empty lines
+        non_empty_lines = [line.strip() for line in lines if line.strip()]
+        if non_empty_lines:
+            # Return last few lines which often contain the error
+            last_lines = non_empty_lines[-3:]
+            # Clean up ANSI codes
+            clean_lines = [re.sub(r'\x1b\[[0-9;]*m', '', line) for line in last_lines]
+            return '\n'.join(clean_lines)
+        
+        # Fallback to command and basic info
+        return f"Command failed: {' '.join(cmd[:3])}{'...' if len(cmd) > 3 else ''}"
     
     def _validate_backend(self) -> None:
         """
@@ -327,10 +440,21 @@ class BackendInterface:
         }
         
         try:
+            # Validate configuration before starting subprocess
+            config_validation = self._validate_config()
+            if not config_validation["valid"]:
+                raise RuntimeError(f"Configuration validation failed: {'; '.join(config_validation['errors'])}")
+            
             # Start subprocess with pipes for real-time output
             # Force unbuffered output for immediate progress updates
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'  # Force Python unbuffered output
+            
+            # Ensure Python path includes current directory for imports
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{self.backend_path}:{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = str(self.backend_path)
             
             process = subprocess.Popen(
                 cmd,
@@ -378,7 +502,9 @@ class BackendInterface:
             self.current_operation["end_time"] = time.time()
             
             if returncode != 0:
-                raise subprocess.CalledProcessError(returncode, cmd, full_output)
+                # Extract meaningful error message from output
+                error_details = self._extract_error_details(full_output, cmd)
+                raise subprocess.CalledProcessError(returncode, cmd, error_details)
             
             return results
             
@@ -708,7 +834,10 @@ class BackendInterface:
                 results[key] = int(value) if value.isdigit() else value
         
         # Check for success indicators
-        if "✓ Found" in output and "accessible SMB servers" in output:
+        # Scan is successful if it completed without fatal errors
+        if ("🎉 SMBSeek security assessment completed successfully!" in output or
+            ("✓ Found" in output and "accessible SMB servers" in output) or
+            "✓ Discovery completed:" in output):
             results["success"] = True
         
         return results

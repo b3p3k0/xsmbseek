@@ -730,8 +730,8 @@ class DashboardWidget:
             if self.scan_button_state != "idle":
                 return  # External scan detected, don't proceed
             
-            # Get backend path (assume relative to GUI)
-            backend_path = "../backend"
+            # Get backend path for external SMBSeek installation
+            backend_path = "./smbseek"
             
             # Start scan via scan manager
             success = self.scan_manager.start_scan(
@@ -750,10 +750,34 @@ class DashboardWidget:
                 # Start monitoring scan completion
                 self._monitor_scan_completion()
             else:
-                messagebox.showerror(
-                    "Scan Error",
-                    "Failed to start scan. Another scan may already be running."
-                )
+                # Get more specific error information
+                error_details = []
+                
+                # Check if backend path exists
+                if not os.path.exists(backend_path):
+                    error_details.append(f"• Backend path not found: {backend_path}")
+                
+                # Check if SMBSeek executable exists
+                smbseek_cli = os.path.join(backend_path, "smbseek.py")
+                if not os.path.exists(smbseek_cli):
+                    error_details.append(f"• SMBSeek CLI not found: {smbseek_cli}")
+                
+                # Check scan manager state
+                if self.scan_manager.is_scanning:
+                    error_details.append("• Scan manager reports scan already in progress")
+                
+                # Check for lock file
+                lock_file_path = os.path.join(os.path.dirname(__file__), '..', '..', '.scan_lock')
+                if os.path.exists(lock_file_path):
+                    error_details.append("• Lock file exists, indicating another scan may be running")
+                
+                if error_details:
+                    detailed_msg = "Failed to start scan. Issues detected:\n\n" + "\n".join(error_details)
+                    detailed_msg += "\n\nPlease ensure SMBSeek is properly installed and configured."
+                else:
+                    detailed_msg = "Failed to start scan. Another scan may already be running."
+                
+                messagebox.showerror("Scan Error", detailed_msg)
         except Exception as e:
             error_msg = str(e)
             
@@ -919,9 +943,9 @@ class DashboardWidget:
             messagebox.showinfo("Scan Results", fallback_message)
     
     def _open_config_editor(self) -> None:
-        """Open configuration editor window."""
+        """Open application configuration dialog."""
         if self.drill_down_callback:
-            self.drill_down_callback("config_editor", {})
+            self.drill_down_callback("app_config", {})
     
     def _open_reports_window(self) -> None:
         """Open reports window."""

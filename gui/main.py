@@ -30,6 +30,7 @@ sys.path.insert(0, str(gui_dir / "utils"))
 from dashboard import DashboardWidget
 from server_list_window import open_server_list_window, ServerListWindow
 from config_editor_window import open_config_editor_window
+from app_config_dialog import open_app_config_dialog
 from vulnerability_report_window import open_vulnerability_report_window
 from data_import_dialog import open_data_import_dialog
 from database_setup_dialog import show_database_setup_dialog
@@ -345,6 +346,13 @@ class SMBSeekGUI:
                 # Open configuration editor window
                 config_path = self.config_path or "../backend/conf/config.json"
                 open_config_editor_window(self.root, config_path)
+            elif window_type == "app_config":
+                # Open application configuration dialog
+                open_app_config_dialog(
+                    self.root, 
+                    self.settings_manager,
+                    self._open_config_editor_direct
+                )
             elif window_type == "vulnerabilities":
                 # Open vulnerability report window
                 open_vulnerability_report_window(self.root, self.db_reader, data)

@@ -71,5 +71,12 @@ Thumbs.db
 test_*.py
 *_test.py
 
+# Development and implementation documentation
+*_IMPLEMENTATION.md
+*_TESTING_GUIDE.md
+*_Feedback_Template.txt
+simple_test.py
+debug_*.py
+
 # SMBSeek external dependency (user-installed)
 smbseek/

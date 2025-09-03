@@ -50,7 +50,7 @@ class DatabaseSetupDialog:
         """
         self.parent = parent
         self.initial_db_path = initial_db_path
-        self.config_path = config_path or "../backend/conf/config.json"
+        self.config_path = config_path or "./smbseek/conf/config.json"
         self.theme = get_theme()
         
         # Dialog result
@@ -301,7 +301,7 @@ class DatabaseSetupDialog:
             ("All files", "*.*")
         ]
         
-        initial_dir = "../backend" if os.path.exists("../backend") else "."
+        initial_dir = "./smbseek" if os.path.exists("./smbseek") else "."
         
         filename = filedialog.askopenfilename(
             title="Select SMBSeek Database File",
@@ -479,7 +479,7 @@ class DatabaseSetupDialog:
             })
             
             # Check backend interface
-            backend = BackendInterface("../backend")
+            backend = BackendInterface("./smbseek")
             if not backend.is_backend_available():
                 raise RuntimeError("SMBSeek backend not available")
             
@@ -502,7 +502,7 @@ class DatabaseSetupDialog:
             )
             
             if result.get('success'):
-                db_path = result.get('database_path', '../backend/smbseek.db')
+                db_path = result.get('database_path', './smbseek/smbseek.db')
                 self.operation_queue.put({
                     'type': 'complete',
                     'success': True,
