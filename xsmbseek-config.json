@@ -1,7 +1,7 @@
 {
   "smbseek": {
-    "path": "./smbseek",
-    "database_path": null
+    "path": "/home/kevin/git/xsmbseek/smbseek",
+    "database_path": "/home/kevin/git/xsmbseek/smbseek/smbseek.db"
   },
   "gui": {
     "theme": "default",

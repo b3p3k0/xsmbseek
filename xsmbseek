@@ -331,6 +331,7 @@ try:
     from dashboard import DashboardWidget
     from server_list_window import open_server_list_window, ServerListWindow
     from config_editor_window import open_config_editor_window
+    from app_config_dialog import open_app_config_dialog
     from vulnerability_report_window import open_vulnerability_report_window
     from data_import_dialog import open_data_import_dialog
     from database_setup_dialog import show_database_setup_dialog
@@ -368,6 +369,10 @@ class XSMBSeekGUI:
         self.mock_mode = mock_mode
         
         # Initialize configuration system
+        # Configuration Architecture:
+        # - self.config (XSMBSeekConfig) manages xsmbseek-config.json 
+        # - self.settings_manager (SettingsManager) manages ~/.smbseek/gui_settings.json
+        # These work together but maintain separate responsibilities
         self.config = XSMBSeekConfig(config_path)
         
         # Override config with CLI arguments if provided
@@ -384,6 +389,7 @@ class XSMBSeekGUI:
         # Backend interfaces
         self.db_reader = None
         self.backend_interface = None
+        self.settings_manager = None
         
         # Threading for background operations
         self.scan_thread = None
@@ -437,7 +443,17 @@ class XSMBSeekGUI:
             self._handle_initialization_error(e)
     
     def _setup_smbseek_integration(self) -> None:
-        """Setup integration with SMBSeek toolkit."""
+        """
+        Setup integration with SMBSeek toolkit.
+        
+        Initializes two separate configuration systems:
+        1. XSMBSeekConfig: Manages xsmbseek-config.json (SMBSeek paths, app settings)
+        2. SettingsManager: Manages ~/.smbseek/gui_settings.json (GUI preferences)
+        
+        The systems work together but maintain separate concerns for modularity.
+        XSMBSeekConfig handles application-level configuration while SettingsManager
+        handles user preferences and GUI state.
+        """
         # Validate SMBSeek installation
         validation = self.config.validate_smbseek_installation()
         
@@ -473,6 +489,18 @@ class XSMBSeekGUI:
             self.db_reader = DatabaseReader(str(db_path))
         except Exception as e:
             raise RuntimeError(f"Failed to initialize database reader: {e}")
+        
+        # Initialize settings manager (GUI preferences in ~/.smbseek/)
+        # Note: This is separate from self.config (XSMBSeekConfig) which manages xsmbseek-config.json
+        try:
+            self.settings_manager = get_settings_manager()  # Use default ~/.smbseek/ directory
+            
+            # Sync SMBSeek path from XSMBSeekConfig to SettingsManager for GUI consistency
+            smbseek_path = str(self.config.get_smbseek_path())
+            self.settings_manager.set_backend_path(smbseek_path)
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize settings manager: {e}")
     
     def _create_main_window(self) -> None:
         """Create and configure main application window."""
@@ -508,10 +536,14 @@ class XSMBSeekGUI:
     
     def _create_dashboard(self) -> None:
         """Create main dashboard widget."""
+        # Get correct SMBSeek config path
+        smbseek_config_path = self.config.get_smbseek_path() / "conf" / "config.json"
+        
         self.dashboard = DashboardWidget(
             self.root,
             self.db_reader,
-            self.backend_interface
+            self.backend_interface,
+            str(smbseek_config_path)
         )
         
         # Set callbacks
@@ -580,6 +612,15 @@ class XSMBSeekGUI:
                 # Open SMBSeek configuration editor
                 config_path = self.config.get_smbseek_path() / "conf" / "config.json"
                 open_config_editor_window(self.root, str(config_path))
+            elif window_type == "app_config":
+                # Open application configuration dialog
+                open_app_config_dialog(
+                    self.root,
+                    self.settings_manager,
+                    self._open_config_editor_direct,
+                    self.config,  # Pass main config so changes get saved to xsmbseek-config.json
+                    self._refresh_database_connection  # Refresh database connection after changes
+                )
             elif window_type == "vulnerabilities":
                 open_vulnerability_report_window(self.root, self.db_reader, data)
             elif window_type == "data_import":
@@ -632,6 +673,25 @@ class XSMBSeekGUI:
         """Manually refresh dashboard data."""
         if self.dashboard:
             self.dashboard._refresh_dashboard_data()
+    
+    def _refresh_database_connection(self) -> None:
+        """Refresh database connection after configuration changes."""
+        try:
+            # Reinitialize database reader with updated path
+            db_path = self.config.get_database_path()
+            self.db_reader = DatabaseReader(str(db_path))
+            
+            # Update dashboard with new database reader
+            if self.dashboard:
+                self.dashboard.db_reader = self.db_reader
+                self.dashboard._refresh_dashboard_data()
+                
+        except Exception as e:
+            messagebox.showerror(
+                "Database Connection Error",
+                f"Failed to connect to database at new path:\n{str(e)}\n\n"
+                "Please check the database path in configuration."
+            )
     
     def _process_scan_queue(self) -> None:
         """Process scan queue updates for progress display."""

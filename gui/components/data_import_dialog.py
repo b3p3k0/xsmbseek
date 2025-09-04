@@ -73,6 +73,9 @@ class DataImportDialog:
         self.preview_tree = None
         self.validation_text = None
         self.import_button = None
+        self.file_info_label = None
+        self.mode_desc_label = None
+        self.preview_info_label = None
         
         self._create_dialog()
     

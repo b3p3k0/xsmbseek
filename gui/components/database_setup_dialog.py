@@ -61,6 +61,13 @@ class DatabaseSetupDialog:
         self.operation_thread = None
         self.operation_queue = queue.Queue()
         
+        # UI components
+        self.cancel_button = None
+        self.options_frame = None
+        self.progress_bar = None
+        self.progress_frame = None
+        self.progress_label = None
+        
         # Create dialog
         self._create_dialog()
     

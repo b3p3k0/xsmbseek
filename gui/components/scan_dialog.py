@@ -59,6 +59,7 @@ class ScanDialog:
         # UI components
         self.dialog = None
         self.country_var = tk.StringVar()
+        self.country_entry = None
         
         self._create_dialog()
     

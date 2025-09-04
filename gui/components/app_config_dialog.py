@@ -40,7 +40,8 @@ class AppConfigDialog:
     """
     
     def __init__(self, parent: tk.Widget, settings_manager=None, 
-                 config_editor_callback: Optional[Callable[[str], None]] = None):
+                 config_editor_callback: Optional[Callable[[str], None]] = None,
+                 main_config=None, refresh_callback: Optional[Callable[[], None]] = None):
         """
         Initialize application configuration dialog.
         
@@ -48,10 +49,14 @@ class AppConfigDialog:
             parent: Parent widget
             settings_manager: SettingsManager instance for persistence
             config_editor_callback: Callback to open existing config editor
+            main_config: XSMBSeekConfig instance for main application config
+            refresh_callback: Callback to refresh database connection after changes
         """
         self.parent = parent
         self.settings_manager = settings_manager
         self.config_editor_callback = config_editor_callback
+        self.main_config = main_config
+        self.refresh_callback = refresh_callback
         self.theme = get_theme()
         
         # Configuration paths
@@ -107,8 +112,8 @@ class AppConfigDialog:
         """Create the configuration dialog window."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("SMBSeek - Application Configuration")
-        self.dialog.geometry("700x500")
-        self.dialog.minsize(600, 450)
+        self.dialog.geometry("700x760")
+        self.dialog.minsize(600, 700)
         
         # Apply theme
         self.theme.apply_to_widget(self.dialog, "main_window")
@@ -176,21 +181,21 @@ class AppConfigDialog:
             "smbseek"
         )
         
-        # SMBSeek Configuration Path
+        # Database Path - moved to second position
+        self._create_path_config_section(
+            main_frame,
+            "Database Location",
+            "Path to the SQLite database file",
+            "database"
+        )
+        
+        # SMBSeek Configuration Path - moved to third position
         self._create_path_config_section(
             main_frame,
             "SMBSeek Configuration",
             "Path to SMBSeek's config.json file",
             "config",
             show_edit_button=True
-        )
-        
-        # Database Path
-        self._create_path_config_section(
-            main_frame,
-            "Database Location",
-            "Path to the SQLite database file",
-            "database"
         )
     
     def _create_path_config_section(self, parent: tk.Widget, title: str, 
@@ -417,7 +422,12 @@ class AppConfigDialog:
         path_obj = Path(path)
         
         if not path_obj.exists():
-            return {'valid': False, 'message': '❌ Configuration file not found'}
+            # Check if parent directory exists and we can potentially create the config
+            parent_dir = path_obj.parent
+            if parent_dir.exists() and path_obj.name.endswith('.json'):
+                return {'valid': True, 'message': '⚠️ Configuration file will be created'}
+            else:
+                return {'valid': False, 'message': '❌ Configuration file not found'}
         
         if not path_obj.is_file():
             return {'valid': False, 'message': '❌ Path is not a file'}
@@ -617,31 +627,43 @@ class AppConfigDialog:
             )
             return False
         
-        # Save to settings manager
-        if self.settings_manager:
-            try:
-                # Save paths
+        # Save to both settings manager (GUI preferences) and main config (application settings)
+        try:
+            # Save to settings manager (GUI preferences)
+            if self.settings_manager:
                 self.settings_manager.set_backend_path(self.smbseek_var.get())
                 self.settings_manager.set_database_path(self.database_var.get())
-                
-                # Save config path (derived setting)
                 self.settings_manager.set_setting('backend.config_path', self.config_var.get())
+            
+            # Save to main config (application settings) - this is what the app actually uses
+            if self.main_config:
+                old_db_path = str(self.main_config.get_database_path()) if self.main_config.get_database_path() else None
                 
-                return True
+                self.main_config.set_smbseek_path(self.smbseek_var.get())
+                self.main_config.set_database_path(self.database_var.get())
+                self.main_config.save_config()
                 
-            except Exception as e:
-                messagebox.showerror(
-                    "Configuration Save Failed",
-                    f"Failed to save configuration:\n{str(e)}\n\n"
-                    "Please check your settings and try again."
-                )
-                return False
+                # If database path changed, refresh the database connection
+                new_db_path = self.database_var.get()
+                if old_db_path != new_db_path and self.refresh_callback:
+                    self.refresh_callback()
+            
+            return True
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Configuration Save Failed",
+                f"Failed to save configuration:\n{str(e)}\n\n"
+                "Please check your settings and try again."
+            )
+            return False
         
         return True
 
 
 def open_app_config_dialog(parent: tk.Widget, settings_manager=None, 
-                          config_editor_callback: Optional[Callable[[str], None]] = None) -> None:
+                          config_editor_callback: Optional[Callable[[str], None]] = None,
+                          main_config=None, refresh_callback: Optional[Callable[[], None]] = None) -> None:
     """
     Open application configuration dialog.
     
@@ -649,9 +671,11 @@ def open_app_config_dialog(parent: tk.Widget, settings_manager=None,
         parent: Parent widget
         settings_manager: SettingsManager instance for persistence
         config_editor_callback: Callback to open existing config editor
+        main_config: XSMBSeekConfig instance for main application config
+        refresh_callback: Callback to refresh database connection after changes
     """
     try:
-        AppConfigDialog(parent, settings_manager, config_editor_callback)
+        AppConfigDialog(parent, settings_manager, config_editor_callback, main_config, refresh_callback)
     except Exception as e:
         messagebox.showerror(
             "Configuration Dialog Error",

@@ -57,6 +57,7 @@ class ScanResultsDialog:
         
         # UI components
         self.dialog = None
+        self.close_button = None
         
         self._create_dialog()
     

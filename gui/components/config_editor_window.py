@@ -33,14 +33,17 @@ class SimpleConfigEditorWindow:
     - JSON syntax validation before saving
     """
     
-    def __init__(self, parent: tk.Widget, config_path: str = "../backend/conf/config.json"):
+    def __init__(self, parent: tk.Widget, config_path: str = None):
         """
         Initialize configuration editor window.
         
         Args:
             parent: Parent widget
-            config_path: Path to configuration file
+            config_path: Path to configuration file (required)
         """
+        if config_path is None:
+            raise ValueError("config_path is required - no default path available")
+        
         self.parent = parent
         self.config_path = Path(config_path).resolve()
         self.theme = get_theme()
@@ -264,7 +267,7 @@ class SimpleConfigEditorWindow:
             title="Open Configuration File",
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            initialdir="../backend/conf"
+            initialdir=str(self.config_path.parent)
         )
         
         if filename:
@@ -366,7 +369,7 @@ class SimpleConfigEditorWindow:
             )
 
 
-def open_config_editor_window(parent: tk.Widget, config_path: str = "../backend/conf/config.json") -> None:
+def open_config_editor_window(parent: tk.Widget, config_path: str) -> None:
     """
     Open simplified configuration editor window.
     

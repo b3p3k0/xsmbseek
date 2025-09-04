@@ -67,9 +67,13 @@ Thumbs.db
 *.bak
 .cache/
 
-# Test files
+# Test files - EXCEPT quality assurance tools
 test_*.py
 *_test.py
+# Quality assurance exceptions (keep these):
+!test_attribute_fixes.py
+!comprehensive_gui_audit.py  
+!validate_gui_safety.py
 
 # Development and implementation documentation
 *_IMPLEMENTATION.md

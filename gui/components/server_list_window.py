@@ -23,10 +23,10 @@ import platform
 # Add utils to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
 
-from database_access import DatabaseReader
-from style import get_theme
-from data_export_engine import get_export_engine
-from scan_manager import get_scan_manager
+from gui.utils.database_access import DatabaseReader
+from gui.utils.style import get_theme
+from gui.utils.data_export_engine import get_export_engine
+from gui.utils.scan_manager import get_scan_manager
 
 
 class ServerListWindow:
@@ -70,13 +70,29 @@ class ServerListWindow:
         self.tree = None
         self.scrollbar_v = None
         self.scrollbar_h = None
-        
         # Filter variables
-        self.country_filter = tk.StringVar()
-        self.auth_filter = tk.StringVar()
-        self.vuln_filter = tk.StringVar()
         self.search_text = tk.StringVar()
-        self.date_filter = tk.StringVar()
+        self.search_var = tk.StringVar()  # Additional search reference
+        self.country_filter = tk.StringVar(value="All")
+        self.auth_filter = tk.StringVar(value="All") 
+        self.vuln_filter = tk.StringVar(value="All")
+        self.date_filter = tk.StringVar(value="All")
+        self.shares_filter = tk.StringVar(value="All")
+        
+        # Filter UI components
+        self.advanced_filters_frame = None
+        self.country_combo = None
+        self.auth_combo = None
+        self.vuln_combo = None
+        self.date_combo = None
+        self.shares_filter_checkbox = None
+        
+        # UI components
+        self.count_label = None
+        self.selection_label = None
+        self.status_label = None
+        self.mode_button = None
+        self.show_all_button = None
         
         # Date filtering state
         self.filter_recent = window_data.get("filter_recent", False)
@@ -103,8 +119,10 @@ class ServerListWindow:
         # Apply theme
         self.theme.apply_to_widget(self.window, "main_window")
         
-        # Make window modal
-        self.window.transient(self.parent)
+        # Make window modal (use master window if available)
+        if hasattr(self.parent, 'winfo_toplevel'):
+            master_window = self.parent.winfo_toplevel()
+            self.window.transient(master_window)
         self.window.grab_set()
         
         # Center window
@@ -121,21 +139,19 @@ class ServerListWindow:
     
     def _center_window(self) -> None:
         """Center window on parent."""
-        self.window.update_idletasks()
-        
-        # Get parent window position and size
-        parent_x = self.parent.winfo_x()
-        parent_y = self.parent.winfo_y()
-        parent_width = self.parent.winfo_width()
-        parent_height = self.parent.winfo_height()
-        
-        # Calculate center position
-        width = self.window.winfo_width()
-        height = self.window.winfo_height()
-        x = parent_x + (parent_width // 2) - (width // 2)
-        y = parent_y + (parent_height // 2) - (height // 2)
-        
-        self.window.geometry(f"{width}x{height}+{x}+{y}")
+        if self.window is not None:
+            self.window.update_idletasks()
+            # Get parent window position and size
+            parent_x = self.parent.winfo_x()
+            parent_y = self.parent.winfo_y()
+            parent_width = self.parent.winfo_width()
+            parent_height = self.parent.winfo_height()
+            # Calculate center position
+            width = self.window.winfo_width()
+            height = self.window.winfo_height()
+            x = parent_x + (parent_width // 2) - (width // 2)
+            y = parent_y + (parent_height // 2) - (height // 2)
+            self.window.geometry(f"{width}x{height}+{x}+{y}")
     
     def _create_header(self) -> None:
         """Create window header with title and controls."""
@@ -225,19 +241,32 @@ class ServerListWindow:
         # Advanced filters (hidden initially)
         self.advanced_filters_frame = tk.Frame(self.filter_frame)
         self.theme.apply_to_widget(self.advanced_filters_frame, "card")
-        
+
+        # Accessible shares filter (checkbox)
+        shares_filter_frame = tk.Frame(self.advanced_filters_frame)
+        self.theme.apply_to_widget(shares_filter_frame, "card")
+        shares_filter_frame.pack(side=tk.LEFT, padx=10, pady=5)
+
+        self.shares_filter_checkbox = tk.Checkbutton(
+            shares_filter_frame,
+            text="Show only servers with accessible shares > 0",
+            variable=self.shares_filter,
+            command=self._apply_filters
+        )
+        self.shares_filter_checkbox.pack()
+
         # Country filter
         country_frame = tk.Frame(self.advanced_filters_frame)
         self.theme.apply_to_widget(country_frame, "card")
         country_frame.pack(side=tk.LEFT, padx=10, pady=5)
-        
+
         country_label = self.theme.create_styled_label(
             country_frame,
             "Country:",
             "small"
         )
         country_label.pack()
-        
+
         self.country_combo = ttk.Combobox(
             country_frame,
             textvariable=self.country_filter,
@@ -592,6 +621,10 @@ class ServerListWindow:
         if date_filter_value and date_filter_value != "All":
             filtered = self._apply_date_filter(filtered, date_filter_value)
         
+        # Apply accessible shares filter
+        if self.shares_filter.get():
+            filtered = [server for server in filtered if server.get("accessible_shares", 0) > 0]
+
         self.filtered_servers = filtered
         self._update_table_display()
     

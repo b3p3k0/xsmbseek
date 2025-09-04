@@ -45,7 +45,7 @@ class DashboardWidget:
     """
     
     def __init__(self, parent: tk.Widget, db_reader: DatabaseReader, 
-                 backend_interface: BackendInterface):
+                 backend_interface: BackendInterface, config_path: str = None):
         """
         Initialize dashboard widget.
         
@@ -53,6 +53,7 @@ class DashboardWidget:
             parent: Parent tkinter widget
             db_reader: Database access instance
             backend_interface: Backend communication interface
+            config_path: Path to SMBSeek configuration file (optional)
             
         Design Decision: Dependency injection allows easy testing with mock
         objects and clear separation of concerns.
@@ -68,7 +69,7 @@ class DashboardWidget:
         
         # Scan management
         self.scan_manager = get_scan_manager()
-        self.config_path = "../backend/conf/config.json"
+        self.config_path = config_path
         
         # UI components
         self.main_frame = None
@@ -78,6 +79,12 @@ class DashboardWidget:
         self.summary_frame = None
         self.scan_button = None
         self.status_bar = None
+        self.progress_bar = None
+        self.update_time_label = None
+        self.status_message = None
+        self.metric_cards = None
+        self.activity_list_frame = None
+        self.country_list_frame = None
         
         # Progress tracking
         self.progress_var = tk.DoubleVar()
