@@ -154,14 +154,14 @@ SMBSeek identifies SMB (Server Message Block) servers that allow weak authentica
 SMBSeek stores all scan results in a SQLite database (`smbseek.db`) that automatically grows with your scans. This allows you to:
 - **Query across multiple scans** to see trends
 - **Correlate data** between different security tools
-- **Generate reports** from historical data
-- **Export data** in various formats
+- **Export data** in various formats for analysis
+- **Track changes** over time with historical data
 
 ### The Workflow
 1. **Scan**: Query Shodan and test SMB servers
 2. **Store**: Save results automatically in the database  
 3. **Query**: Use built-in tools to explore your data
-4. **Analyze**: Generate insights and reports
+4. **Export**: Generate data exports for external analysis
 
 ---
 

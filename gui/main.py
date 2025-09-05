@@ -31,7 +31,6 @@ from dashboard import DashboardWidget
 from server_list_window import open_server_list_window, ServerListWindow
 from config_editor_window import open_config_editor_window
 from app_config_dialog import open_app_config_dialog
-from vulnerability_report_window import open_vulnerability_report_window
 from data_import_dialog import open_data_import_dialog
 from database_setup_dialog import show_database_setup_dialog
 from database_access import DatabaseReader
@@ -410,9 +409,6 @@ class SMBSeekGUI:
                     self.settings_manager,
                     self._open_config_editor_direct
                 )
-            elif window_type == "vulnerabilities":
-                # Open vulnerability report window
-                open_vulnerability_report_window(self.root, self.db_reader, data)
             elif window_type == "data_import":
                 # Open data import dialog
                 open_data_import_dialog(self.root, self.db_reader)
@@ -424,13 +420,11 @@ class SMBSeekGUI:
                 # For other window types, show placeholder message
                 window_titles = {
                     "share_details": "Share Access Details", 
-                    "vulnerabilities": "Vulnerability Report",
                     "recent_activity": "Recent Activity Timeline",
                     "geographic_report": "Geographic Distribution",
                     "activity_timeline": "Activity Timeline",
                     "config_editor": "Configuration Editor",
                     "data_import": "Data Import",
-                    "reports": "Reports Generator"
                 }
                 
                 title = window_titles.get(window_type, "Detail Window")

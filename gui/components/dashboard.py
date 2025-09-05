@@ -192,14 +192,6 @@ class DashboardWidget:
         self.theme.apply_to_widget(config_button, "button_secondary")
         config_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        # Reports button
-        reports_button = tk.Button(
-            actions_frame,
-            text="📊 Reports",
-            command=self._open_reports_window
-        )
-        self.theme.apply_to_widget(reports_button, "button_secondary")
-        reports_button.pack(side=tk.LEFT)
     
     def _build_status_section(self) -> None:
         """Build status bar with system information."""
@@ -827,10 +819,6 @@ class DashboardWidget:
         if self.drill_down_callback:
             self.drill_down_callback("app_config", {})
     
-    def _open_reports_window(self) -> None:
-        """Open reports window."""
-        if self.drill_down_callback:
-            self.drill_down_callback("reports", {})
     
     def _open_drill_down(self, window_type: str) -> None:
         """

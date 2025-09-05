@@ -229,7 +229,7 @@ All notable changes to the SMBSeek GUI project will be documented in this file.
 ### Current Version (1.0.0)
 - **Drill-down Windows**: Placeholder implementation (planned for v1.1.0)
 - **Scan Configuration**: Basic quick scan only (full config planned for v1.1.0)  
-- **Report Generation**: Export functionality not yet implemented
+- **Data Export**: Export functionality not yet implemented
 - **Advanced Filtering**: Basic country filtering only
 
 ### Technical Limitations
@@ -241,10 +241,10 @@ All notable changes to the SMBSeek GUI project will be documented in this file.
 ## Future Roadmap
 
 ### Version 1.1.0 (Planned)
-- **Drill-down Windows**: Complete server list, vulnerability reports, geographic maps
-- **Advanced Scanning**: Full scan configuration interface
-- **Report Generation**: PDF, CSV, and JSON export functionality
+- **Drill-down Windows**: Complete server list and geographic maps
+- **Advanced Scanning**: Full scan configuration interface  
 - **Enhanced Filtering**: Multi-criteria search and filtering
+- **Data Export**: CSV and JSON export functionality
 
 ### Version 1.2.0 (Planned)
 - **Scheduled Scans**: Automated scanning with cron-like scheduling

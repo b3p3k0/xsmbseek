@@ -332,7 +332,6 @@ try:
     from server_list_window import open_server_list_window, ServerListWindow
     from config_editor_window import open_config_editor_window
     from app_config_dialog import open_app_config_dialog
-    from vulnerability_report_window import open_vulnerability_report_window
     from data_import_dialog import open_data_import_dialog
     from database_setup_dialog import show_database_setup_dialog
     from database_access import DatabaseReader
@@ -678,8 +677,6 @@ class XSMBSeekGUI:
                     self.config,  # Pass main config so changes get saved to xsmbseek-config.json
                     self._refresh_database_connection  # Refresh database connection after changes
                 )
-            elif window_type == "vulnerabilities":
-                open_vulnerability_report_window(self.root, self.db_reader, data)
             elif window_type == "data_import":
                 open_data_import_dialog(self.root, self.db_reader)
             elif window_type == "recent_activity":
@@ -689,13 +686,11 @@ class XSMBSeekGUI:
                 # For other window types, show placeholder message
                 window_titles = {
                     "share_details": "Share Access Details", 
-                    "vulnerabilities": "Vulnerability Report",
                     "recent_activity": "Recent Activity Timeline",
                     "geographic_report": "Geographic Distribution",
                     "activity_timeline": "Activity Timeline",
                     "config_editor": "Configuration Editor",
                     "data_import": "Data Import",
-                    "reports": "Reports Generator"
                 }
                 
                 title = window_titles.get(window_type, "Detail Window")
