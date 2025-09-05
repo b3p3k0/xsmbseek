@@ -341,7 +341,7 @@ class ScanResultsDialog:
             github_button = tk.Button(
                 link_frame,
                 text="🔗 Visit GitHub Repository",
-                command=lambda: webbrowser.open("https://github.com/kevinnord/smbseek"),
+                command=lambda: webbrowser.open("https://github.com/b3p3k0/smbseek"),
                 relief="flat",
                 borderwidth=0
             )
