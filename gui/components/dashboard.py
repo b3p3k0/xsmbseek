@@ -232,10 +232,11 @@ class DashboardWidget:
         self.status_text.set("Ready | No active scans")
     
     def _build_progress_section(self) -> None:
-        """Build progress display for active scans."""
+        """Build persistent progress display that's always visible."""
         self.progress_frame = tk.Frame(self.main_frame)
         self.theme.apply_to_widget(self.progress_frame, "card")
-        # Initially hidden - shown during scans
+        # Always visible - maintains consistent layout and provides scan status feedback
+        self.progress_frame.pack(fill=tk.X, pady=(0, 15))
         
         # Progress bar
         self.progress_bar = ttk.Progressbar(
@@ -267,9 +268,15 @@ class DashboardWidget:
             font=self.theme.fonts["small"]
         )
         progress_detail_label.pack(pady=(0, 10))
+        
+        # Initialize progress section to idle state
+        self._set_idle_progress_state()
     
-    
-    
+    def _set_idle_progress_state(self) -> None:
+        """Set progress section to idle state with ready message."""
+        self.progress_var.set(0)
+        self.progress_text.set("Ready to scan")
+        self.progress_detail_text.set("Click 'Start Scan' to begin security assessment")
     
     def _build_summary_section(self) -> None:
         """Build horizontal layout with Total Servers and expanded Recent Activity."""
@@ -564,8 +571,9 @@ class DashboardWidget:
         self.parent.after(5000, self._hide_progress_section)
     
     def _hide_progress_section(self) -> None:
-        """Hide the progress section."""
-        self.progress_frame.pack_forget()
+        """Return progress section to idle state."""
+        # Don't hide the frame - return to idle state for consistent layout
+        self._set_idle_progress_state()
         self.status_text.set("Ready")
     
     def _show_quick_scan_dialog(self) -> None:
@@ -710,11 +718,10 @@ class DashboardWidget:
             print(f"Progress update error: {e}")  # In production, use proper logging
     
     def _show_scan_progress(self, country: Optional[str]) -> None:
-        """Show scan progress display."""
-        # Show progress section
-        self.progress_frame.pack(fill=tk.X, pady=(0, 15), before=self.metrics_frame)
+        """Transition progress display to active scanning state."""
+        # Progress section is already visible, just update content for active state
         
-        # Reset progress
+        # Reset progress to start
         self.progress_var.set(0)
         scan_target = country if country else "global"
         self.progress_text.set(f"Initializing {scan_target} scan...")

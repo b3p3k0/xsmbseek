@@ -260,8 +260,8 @@ class SMBSeekGUI:
         """Create and configure main application window."""
         self.root = tk.Tk()
         self.root.title("SMBSeek Security Toolkit")
-        self.root.geometry("800x350")
-        self.root.minsize(800, 350)
+        self.root.geometry("800x425")
+        self.root.minsize(800, 425)
         
         # Apply theme
         apply_theme_to_window(self.root)
@@ -286,7 +286,7 @@ class SMBSeekGUI:
         # Force our intended dimensions instead of querying auto-sized dimensions
         # This prevents tkinter from expanding the window based on content
         target_width = 800   # Intended width for dashboard
-        target_height = 350  # Intended compact height
+        target_height = 425  # Intended height with progress bar space
         
         # Calculate center position based on intended dimensions
         screen_width = self.root.winfo_screenwidth()
@@ -299,27 +299,43 @@ class SMBSeekGUI:
     
     def _enforce_window_size(self) -> None:
         """
-        Enforce the intended window size to prevent auto-resizing.
+        Enforce minimum window size constraints while respecting user preferences.
         
-        This method can be called after UI operations that might trigger
-        tkinter's auto-sizing behavior to ensure window remains at 350px height.
+        This method ensures the window doesn't shrink below minimum requirements
+        but allows users to manually resize larger without forcing back to defaults.
+        Implements industry-standard UX behavior for window management.
         """
-        target_width = 800
-        target_height = 350
+        min_width = 800
+        min_height = 425
         
-        # Get current geometry to preserve position
+        # Get current geometry
         current_geometry = self.root.geometry()
-        if '+' in current_geometry:
-            # Extract position from current geometry (e.g., "800x750+100+50")
-            size_part, pos_part = current_geometry.split('+', 1)
-            x_pos = pos_part.split('+')[0] if '+' in pos_part else pos_part.split('-')[0]
-            y_pos = pos_part.split('+')[1] if '+' in pos_part else pos_part.split('-')[1]
+        if 'x' in current_geometry and '+' in current_geometry:
+            # Parse current dimensions and position
+            size_part = current_geometry.split('+')[0]
+            pos_part = current_geometry[len(size_part):]
             
-            # Force our intended size while preserving position
-            self.root.geometry(f"{target_width}x{target_height}+{x_pos}+{y_pos}")
+            current_width, current_height = map(int, size_part.split('x'))
+            
+            # Only enforce minimum constraints - respect user's larger choices
+            needs_adjustment = False
+            new_width = current_width
+            new_height = current_height
+            
+            if current_width < min_width:
+                new_width = min_width
+                needs_adjustment = True
+                
+            if current_height < min_height:
+                new_height = min_height
+                needs_adjustment = True
+            
+            # Only adjust if window is below minimum - preserve user's larger sizing
+            if needs_adjustment:
+                self.root.geometry(f"{new_width}x{new_height}{pos_part}")
         else:
-            # Fall back to centering if position extraction fails
-            self._center_window()
+            # Fallback: ensure minimum size without forcing position
+            self.root.minsize(min_width, min_height)
     
     def _create_dashboard(self) -> None:
         """Create main dashboard widget."""
