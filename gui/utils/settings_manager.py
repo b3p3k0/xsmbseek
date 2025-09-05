@@ -52,7 +52,7 @@ class SettingsManager:
             },
             'windows': {
                 'main_window': {
-                    'geometry': '800x700',
+                    'geometry': '800x350',
                     'position': 'center'
                 },
                 'server_list': {
@@ -107,6 +107,9 @@ class SettingsManager:
                 
                 # Merge with defaults (in case new settings were added)
                 self.settings = self._merge_settings(self.default_settings, file_settings)
+                
+                # Migrate legacy settings to new format
+                self.settings = self._migrate_legacy_settings(self.settings)
                 
                 # Update last_updated timestamp
                 self.settings['metadata']['last_updated'] = datetime.now().isoformat()
@@ -221,6 +224,22 @@ class SettingsManager:
                 result[key] = value
         
         return result
+    
+    def _migrate_legacy_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Migrate legacy settings to new format.
+        
+        Updates old geometry settings to use new compact dimensions.
+        This ensures existing settings files get the new 350px height.
+        """
+        # Update legacy main window geometry settings
+        legacy_geometries = ['800x700', '1200x800', '800x550', '800x750']
+        current_geometry = settings.get('windows', {}).get('main_window', {}).get('geometry')
+        
+        if current_geometry in legacy_geometries:
+            settings['windows']['main_window']['geometry'] = '800x350'
+            
+        return settings
     
     def get_interface_mode(self) -> str:
         """Get current interface mode (simple/advanced)."""

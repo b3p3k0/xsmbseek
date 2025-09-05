@@ -260,8 +260,8 @@ class SMBSeekGUI:
         """Create and configure main application window."""
         self.root = tk.Tk()
         self.root.title("SMBSeek Security Toolkit")
-        self.root.geometry("800x700")
-        self.root.minsize(800, 700)
+        self.root.geometry("800x350")
+        self.root.minsize(800, 350)
         
         # Apply theme
         apply_theme_to_window(self.root)
@@ -273,13 +273,53 @@ class SMBSeekGUI:
         self._center_window()
     
     def _center_window(self) -> None:
-        """Center the main window on screen."""
-        self.root.update_idletasks()
-        width = self.root.winfo_width()
-        height = self.root.winfo_height()
-        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.root.winfo_screenheight() // 2) - (height // 2)
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        """
+        Center the main window on screen using fixed dimensions.
+        
+        Forces window to maintain intended 800x350 size instead of 
+        auto-sizing based on content. This ensures consistent compact
+        layout across different screen configurations.
+        
+        Design Decision: Fixed dimensions prevent tkinter's automatic
+        content-based sizing from overriding our intended compact layout.
+        """
+        # Force our intended dimensions instead of querying auto-sized dimensions
+        # This prevents tkinter from expanding the window based on content
+        target_width = 800   # Intended width for dashboard
+        target_height = 350  # Intended compact height
+        
+        # Calculate center position based on intended dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = (screen_width // 2) - (target_width // 2)
+        y = (screen_height // 2) - (target_height // 2)
+        
+        # Force our intended dimensions and center position
+        self.root.geometry(f"{target_width}x{target_height}+{x}+{y}")
+    
+    def _enforce_window_size(self) -> None:
+        """
+        Enforce the intended window size to prevent auto-resizing.
+        
+        This method can be called after UI operations that might trigger
+        tkinter's auto-sizing behavior to ensure window remains at 350px height.
+        """
+        target_width = 800
+        target_height = 350
+        
+        # Get current geometry to preserve position
+        current_geometry = self.root.geometry()
+        if '+' in current_geometry:
+            # Extract position from current geometry (e.g., "800x750+100+50")
+            size_part, pos_part = current_geometry.split('+', 1)
+            x_pos = pos_part.split('+')[0] if '+' in pos_part else pos_part.split('-')[0]
+            y_pos = pos_part.split('+')[1] if '+' in pos_part else pos_part.split('-')[1]
+            
+            # Force our intended size while preserving position
+            self.root.geometry(f"{target_width}x{target_height}+{x_pos}+{y_pos}")
+        else:
+            # Fall back to centering if position extraction fails
+            self._center_window()
     
     def _create_dashboard(self) -> None:
         """Create main dashboard widget."""
@@ -292,6 +332,7 @@ class SMBSeekGUI:
         # Set callbacks
         self.dashboard.set_drill_down_callback(self._open_drill_down_window)
         self.dashboard.set_config_editor_callback(self._open_config_editor_direct)
+        self.dashboard.set_size_enforcement_callback(self._enforce_window_size)
     
     def _setup_event_handlers(self) -> None:
         """Setup application-wide event handlers."""

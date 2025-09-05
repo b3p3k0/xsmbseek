@@ -4,7 +4,7 @@
 
 xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek security assessment toolkit as an external configurable dependency.
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 - Python 3.6+
@@ -49,7 +49,7 @@ xsmbseek will automatically detect SMBSeek in common locations:
 
 If SMBSeek is not found automatically, xsmbseek will show a setup dialog to help you configure the correct path.
 
-## 📋 Usage
+##  Usage
 
 ### Basic Commands
 ```bash
@@ -74,7 +74,7 @@ xsmbseek uses a dual configuration system:
 - **xsmbseek-config.json**: GUI settings, SMBSeek path, database path
 - **SMBSeek configuration**: Handled by SMBSeek itself (`smbseek/conf/config.json`)
 
-## 🏗️ Architecture
+##  Architecture
 
 ### Project Structure
 ```
@@ -100,7 +100,7 @@ xsmbseek/                      # xsmbseek GUI frontend
 - **Mock Mode**: Development mode without SMBSeek dependency
 - **Cross-Platform**: Works on Linux, macOS, and Windows
 
-## 🔧 Development
+##  Development
 
 ### Testing
 ```bash
@@ -124,7 +124,7 @@ python3 simple_test.py
 ./xsmbseek --smbseek-path /opt/smbseek --mock
 ```
 
-## 🧪 Human Testing
+##  Human Testing
 
 See [`docs/HUMAN_TESTING_GUIDE.md`](docs/HUMAN_TESTING_GUIDE.md) for comprehensive testing instructions including:
 - Brand new user journey
@@ -132,13 +132,13 @@ See [`docs/HUMAN_TESTING_GUIDE.md`](docs/HUMAN_TESTING_GUIDE.md) for comprehensi
 - Error handling and recovery
 - Integration testing with SMBSeek
 
-## 📚 Documentation
+##  Documentation
 
 - **CLAUDE.md**: Development guidance for AI assistants
 - **docs/HUMAN_TESTING_GUIDE.md**: Step-by-step testing instructions
 - **SMBSeek Documentation**: See the SMBSeek repository for security tool documentation
 
-## 🔐 Security
+##  Security
 
 xsmbseek is a frontend for security assessment tools. It maintains the same ethical and security principles as SMBSeek:
 
@@ -147,23 +147,21 @@ xsmbseek is a frontend for security assessment tools. It maintains the same ethi
 - **Rate Limiting**: Prevents aggressive scanning behavior
 - **Audit Logging**: Comprehensive operation tracking
 
-## 🤝 Contributing
+##  Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Test thoroughly using the human testing guide
 4. Submit a pull request
 
-## 📝 License
+##  License
 
 This project follows the same license terms as specified in the LICENSE file.
 
-## ⚠️ Disclaimer
+##  Disclaimer
 
 This tool is provided for educational and defensive security purposes only. Users are responsible for ensuring their use complies with all applicable laws and regulations.
 
 ---
-
-**Built with ❤️ by the xsmbseek development team**
 
 For SMBSeek (the underlying security toolkit), visit: https://github.com/b3p3k0/smbseek

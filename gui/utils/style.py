@@ -197,32 +197,34 @@ class SMBSeekTheme:
         """
         if style_name in self.styles:
             style_dict = self.styles[style_name].copy()
-            
+            widget_type = widget.winfo_class() if hasattr(widget, 'winfo_class') else type(widget).__name__
+
+            # Special handling for Toplevel windows
+            if widget_type in ["Toplevel", "Tk"]:
+                # Only set background color for window
+                bg = style_dict.get("bg") or style_dict.get("background")
+                if bg:
+                    try:
+                        widget.configure(background=bg)
+                    except Exception:
+                        try:
+                            widget['background'] = bg
+                        except Exception:
+                            pass
+                return
+
             # Remove options that don't apply to all widgets
-            widget_type = widget.winfo_class()
-            
-            # Handle widget-specific option filtering
             if widget_type == "Frame":
-                # Frames don't support fg option
                 style_dict.pop("fg", None)
-            elif widget_type == "Label":
-                # Labels support most options
-                pass
-            elif widget_type == "Button":
-                # Buttons support most options
-                pass
-            
-            # Apply valid options only
+            # ...existing code for other widget types...
             try:
                 widget.configure(**style_dict)
             except tk.TclError as e:
-                # If there's still an invalid option, apply them one by one
                 for key, value in style_dict.items():
                     try:
-                        widget.configure({key: value})
+                        widget.configure(**{key: value})
                     except tk.TclError:
-                        # Skip invalid options silently
-                        pass
+                        continue
     
     def get_severity_color(self, severity: str) -> str:
         """

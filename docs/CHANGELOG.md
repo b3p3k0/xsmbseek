@@ -2,6 +2,33 @@
 
 All notable changes to the SMBSeek GUI project will be documented in this file.
 
+## [1.2.0] - 2025-09-05
+
+### Changed
+- **Dashboard Interface Reorganization**: Complete redesign of main dashboard for compact, efficient layout
+  - Removed unused metric cards: "Available Shares", "High Risk Vulnerabilities", "Recent Discoveries"
+  - Removed entire country breakdown section for cleaner interface
+  - Implemented horizontal layout with "Total Servers" card and expanded "Recent Activity" section
+  - Optimized card proportions and button alignment for professional appearance
+
+### Fixed
+- **Critical Window Height Issue**: Resolved persistent 750px window height problem that ignored settings
+  - Root cause: `update_idletasks()` calls triggered tkinter's automatic content-based window resizing
+  - Solution: Replaced with safer `update()` calls and added window size enforcement mechanism
+  - Dashboard now correctly maintains intended 350px height for compact layout
+  - Added protective callbacks to prevent auto-resizing after UI operations
+
+### Added
+- **Window Size Protection**: New enforcement mechanism prevents unwanted window resizing
+  - Size enforcement callbacks ensure window dimensions remain as intended
+  - Multiple protection layers during data refresh and progress updates
+  - Preserves window position while enforcing target dimensions
+
+### Technical
+- **Enhanced Progress Updates**: Improved UI update mechanism without geometry recalculation
+- **Settings Migration**: Automatic migration of legacy window geometry settings
+- **Defensive Programming**: Added error handling for UI destruction scenarios during updates
+
 ## [1.0.1] - 2025-08-23
 
 ### Removed

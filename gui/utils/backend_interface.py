@@ -53,6 +53,10 @@ class BackendInterface:
         self.progress_queue = queue.Queue()
         self.current_operation = None
         
+        # Phase tracking with persistence for better progress accuracy
+        self.last_known_phase = None
+        self.phase_progression = ['discovery', 'authentication', 'access_testing', 'collection', 'reporting']
+        
         # Mock mode for testing without backend
         self.mock_mode = False
         # Use gui directory for mock data (relative to where GUI components are)
@@ -525,6 +529,8 @@ class BackendInterface:
         Design Decision: Regex patterns match the specific progress format
         used by the backend CLI for consistent progress tracking.
         """
+        # Reset phase tracking for new scan
+        self.last_known_phase = None
         # Enhanced progress patterns matching real backend output format
         # Formats: "\033[96mℹ 📊 Progress: 45/120 (37.5%)\033[0m" OR "📊 Progress: 25/100 (25.0%) | Success: 5, Failed: 20"
         # Made info symbol optional to capture authentication testing progress
@@ -548,6 +554,9 @@ class BackendInterface:
         host_progress_pattern = re.compile(r'(?:Testing|Processing|Checking).*?(?:host|server).*?(\d+).*?of.*?(\d+)', re.IGNORECASE)
         share_progress_pattern = re.compile(r'(?:Enumerating|Checking).*?share.*?(\d+).*?of.*?(\d+)', re.IGNORECASE)
         auth_success_pattern = re.compile(r'Success:\s*(\d+),?\s*Failed:\s*(\d+)', re.IGNORECASE)
+        
+        # Individual host testing pattern - matches: "[1/10] Testing 213.217.247.165..."
+        individual_host_pattern = re.compile(r'\[(\d+)/(\d+)\]\s*Testing\s+([\d.]+)', re.IGNORECASE)
         
         # Phase detection patterns with workflow step support
         phase_patterns = {
@@ -585,6 +594,16 @@ class BackendInterface:
                 raw_percentage = float(percentage)
                 mapped_percentage = self._map_progress_to_workflow_range(raw_percentage, current_phase)
                 
+                # Enhanced progress capping to prevent 100% during active scans
+                # Detect if we're testing the final host (X/X pattern with 100%)
+                is_final_host_testing = (raw_percentage >= 100.0 and current == total)
+                
+                # Apply comprehensive progress capping
+                # Only allow 100% if: in reporting phase AND phase detected AND not testing final host
+                allow_100_percent = (current_phase == 'reporting' and current_phase is not None and not is_final_host_testing)
+                if not allow_100_percent and mapped_percentage >= 99.0:
+                    mapped_percentage = 98.5
+                
                 # Extract additional context if present
                 auth_match = auth_success_pattern.search(line)
                 if auth_match:
@@ -592,6 +611,17 @@ class BackendInterface:
                     message = f"Testing hosts: {current}/{total} (Success: {success}, Failed: {failed})"
                 else:
                     message = f"Processing {current}/{total} hosts"
+                
+                # Validate host count parsing
+                try:
+                    current_count = int(current)
+                    total_count = int(total)
+                    if total_count <= 0:
+                        # Fallback message for invalid counts
+                        message += " (⚠ Unable to determine total host count)"
+                except ValueError:
+                    # Progress parsing worked but counts are invalid
+                    message += " (⚠ Progress parsing issue - check logs)"
                 
                 progress_callback(mapped_percentage, message)
                 continue
@@ -615,6 +645,38 @@ class BackendInterface:
                 count = auth_start_match.group(1)
                 progress_callback(15.0, f"Starting authentication tests on {count} hosts...")
                 continue
+            
+            # Parse individual host testing for granular progress (e.g., "[5/100] Testing 192.168.1.5...")
+            individual_host_match = individual_host_pattern.search(line)
+            if individual_host_match:
+                current, total, ip_address = individual_host_match.groups()
+                
+                try:
+                    current_count = int(current)
+                    total_count = int(total)
+                    
+                    # Calculate percentage within the current phase (assume authentication for individual testing)
+                    if total_count > 0:
+                        raw_percentage = (current_count / total_count) * 100
+                        
+                        # Enhanced capping for individual host testing
+                        # If testing final host (X/X), cap at 99% to prevent premature 100%
+                        if current_count == total_count and raw_percentage >= 100.0:
+                            raw_percentage = 99.0
+                        
+                        mapped_percentage = self._map_progress_to_workflow_range(raw_percentage, 'authentication')
+                        
+                        # Cap progress to avoid reaching phase end
+                        if mapped_percentage >= 24.5:  # Authentication phase ends at 25%
+                            mapped_percentage = 24.0
+                        
+                        message = f"Testing {current}/{total}: {ip_address}"
+                        progress_callback(mapped_percentage, message)
+                        continue
+                        
+                except ValueError:
+                    # Invalid counts - continue without error
+                    pass
             
             # Determine current phase for context
             current_phase = self._detect_phase(line, phase_patterns)
@@ -643,29 +705,74 @@ class BackendInterface:
     
     def _detect_phase(self, line: str, phase_patterns: Dict) -> Optional[str]:
         """
-        Detect current scan phase from output line.
+        Enhanced phase detection with persistence and inference.
         
         Args:
             line: Output line to analyze
             phase_patterns: Dictionary of phase patterns
             
         Returns:
-            Detected phase name or None
+            Detected phase name, persisted phase, or inferred phase
         """
+        # Try direct pattern matching first
         for phase, pattern in phase_patterns.items():
             if pattern.search(line):
+                self.last_known_phase = phase  # Update persistent phase
                 return phase
-        return None
+        
+        # If no direct match, try to infer from progress indicators and context
+        if "📊 Progress:" in line:
+            # Infer phase from progress context
+            if "Testing SMB authentication" in line or "authentication" in line.lower():
+                self.last_known_phase = 'authentication'
+                return 'authentication'
+            elif "Testing" in line or "Processing" in line:
+                # Most likely access testing if we're testing/processing hosts
+                self.last_known_phase = 'access_testing'
+                return 'access_testing'
+        
+        # Use persisted phase if available (phases tend to persist for multiple lines)
+        if self.last_known_phase:
+            return self.last_known_phase
+            
+        # Fallback: infer phase from percentage if no context available
+        return self._infer_phase_from_context(line)
+    
+    def _infer_phase_from_context(self, line: str) -> Optional[str]:
+        """
+        Infer phase from line context when direct detection fails.
+        
+        Args:
+            line: Output line to analyze
+            
+        Returns:
+            Inferred phase or None
+        """
+        line_lower = line.lower()
+        
+        # Simple keyword-based inference for common cases
+        if any(keyword in line_lower for keyword in ['shodan', 'query', 'discovery']):
+            return 'discovery'
+        elif any(keyword in line_lower for keyword in ['authentication', 'auth', 'login']):
+            return 'authentication' 
+        elif any(keyword in line_lower for keyword in ['testing', 'processing', 'host']):
+            return 'access_testing'  # Most common phase
+        elif any(keyword in line_lower for keyword in ['collection', 'enumeration', 'share']):
+            return 'collection'
+        elif any(keyword in line_lower for keyword in ['report', 'complete', 'summary']):
+            return 'reporting'
+        
+        return None  # Let caller handle this case
     
     def _calculate_workflow_step_percentage(self, step_num: int, total_steps: int) -> float:
         """
         Calculate progress percentage based on workflow step.
         
-        Maps workflow steps to progress ranges (updated for authentication phase):
+        Maps workflow steps to progress ranges (Updated for realistic timing):
         - Step 1 (Discovery): 5-25% (includes Shodan: 5-15%, Authentication: 15-25%)
-        - Step 2 (Access Testing): 25-60%  
-        - Step 3 (Collection): 60-90%
-        - Step 4 (Reporting): 90-100%
+        - Step 2 (Access Testing): 25-80% (Expanded - longest phase)
+        - Step 3 (Collection): 80-95%
+        - Step 4 (Reporting): 95-100%
         
         Args:
             step_num: Current step number (1-based)
@@ -675,7 +782,7 @@ class BackendInterface:
             Progress percentage for step start
         """
         if total_steps == 4:  # Standard workflow
-            step_ranges = {1: 5.0, 2: 25.0, 3: 60.0, 4: 90.0}
+            step_ranges = {1: 5.0, 2: 25.0, 3: 80.0, 4: 95.0}  # Updated ranges
             return step_ranges.get(step_num, 0.0)
         else:
             # Generic calculation for non-standard workflows
@@ -759,12 +866,12 @@ class BackendInterface:
         """
         Map backend progress percentage (0-100%) to workflow step range based on detected phase.
         
-        Workflow step ranges:
+        Workflow step ranges (Updated for realistic timing):
         - Discovery/Shodan: 0-100% → 5-15%
         - Authentication: 0-100% → 15-25%  
-        - Access Testing: 0-100% → 25-60%
-        - Collection: 0-100% → 60-90%
-        - Reporting: 0-100% → 90-100%
+        - Access Testing: 0-100% → 25-80% (Expanded - this is the longest phase)
+        - Collection: 0-100% → 80-95%
+        - Reporting: 0-100% → 95-100%
         
         Args:
             backend_percentage: Raw percentage from backend (0-100)
@@ -773,18 +880,27 @@ class BackendInterface:
         Returns:
             Mapped percentage for GUI workflow display
         """
-        # Phase-specific ranges (start, end)
+        # Phase-specific ranges (start, end) - Updated for realistic timing
         phase_ranges = {
             'discovery': (5.0, 15.0),
             'authentication': (15.0, 25.0), 
-            'access_testing': (25.0, 60.0),
-            'collection': (60.0, 90.0),
-            'reporting': (90.0, 100.0)
+            'access_testing': (25.0, 80.0),  # Expanded - longest phase
+            'collection': (80.0, 95.0),      # Reduced range
+            'reporting': (95.0, 100.0)       # Reduced range
         }
         
         if phase not in phase_ranges:
-            # Fallback to raw percentage if phase unknown
-            return backend_percentage
+            # Fallback behavior: never return 100% during active scans
+            # Assume we're in access_testing phase (most common case) if phase unknown
+            if backend_percentage >= 100.0:
+                # Cap at high percentage in access_testing range to prevent premature 100%
+                return 79.0  # Near end of access_testing phase (25-80%)
+            else:
+                # Map to access_testing range for unknown phases
+                start, end = 25.0, 80.0
+                range_size = end - start
+                mapped = start + (backend_percentage / 100.0) * range_size
+                return min(end, max(start, mapped))
             
         start, end = phase_ranges[phase]
         range_size = end - start

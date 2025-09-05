@@ -79,8 +79,12 @@ test_*.py
 *_IMPLEMENTATION.md
 *_TESTING_GUIDE.md
 *_Feedback_Template.txt
+*_FIX_SUMMARY.md
 simple_test.py
 debug_*.py
 
 # SMBSeek external dependency (user-installed)
 smbseek/
+
+# 
+xsmbseek-config.json

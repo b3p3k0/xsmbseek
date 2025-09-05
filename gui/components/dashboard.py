@@ -82,9 +82,8 @@ class DashboardWidget:
         self.progress_bar = None
         self.update_time_label = None
         self.status_message = None
-        self.metric_cards = None
         self.activity_list_frame = None
-        self.country_list_frame = None
+        self.horizontal_servers_var = None
         
         # Progress tracking
         self.progress_var = tk.DoubleVar()
@@ -99,6 +98,7 @@ class DashboardWidget:
         # Callbacks
         self.drill_down_callback = None
         self.config_editor_callback = None
+        self.size_enforcement_callback = None
         
         self._build_dashboard()
         
@@ -123,6 +123,15 @@ class DashboardWidget:
         """
         self.config_editor_callback = callback
     
+    def set_size_enforcement_callback(self, callback: Callable[[], None]) -> None:
+        """
+        Set callback for enforcing window size after operations that might trigger auto-resize.
+        
+        Args:
+            callback: Function to call to enforce intended window dimensions
+        """
+        self.size_enforcement_callback = callback
+    
     def _build_dashboard(self) -> None:
         """
         Build the complete dashboard layout.
@@ -133,13 +142,12 @@ class DashboardWidget:
         # Main container with scrolling capability
         self.main_frame = tk.Frame(self.parent)
         self.theme.apply_to_widget(self.main_frame, "main_window")
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.main_frame.pack(fill=tk.BOTH, expand=False, padx=8, pady=5)
         
         # Build sections in order
         self._build_header_section()
         self._build_status_section()
         self._build_progress_section()
-        self._build_metrics_section()
         self._build_summary_section()
         self._build_status_bar()
         
@@ -260,178 +268,84 @@ class DashboardWidget:
         )
         progress_detail_label.pack(pady=(0, 10))
     
-    def _build_metrics_section(self) -> None:
-        """
-        Build key metrics cards section.
-        
-        Design Decision: Grid layout with 4 cards provides balanced overview
-        of critical security metrics with clear visual hierarchy.
-        """
-        # Section title
-        metrics_title = self.theme.create_styled_label(
-            self.main_frame,
-            "KEY METRICS",
-            "heading"
-        )
-        metrics_title.pack(anchor="w", pady=(10, 5))
-        
-        # Metrics grid container
-        self.metrics_frame = tk.Frame(self.main_frame)
-        self.theme.apply_to_widget(self.metrics_frame, "main_window")
-        self.metrics_frame.pack(fill=tk.X, pady=(0, 15))
-        
-        # Configure grid weights for responsive layout
-        for i in range(4):
-            self.metrics_frame.columnconfigure(i, weight=1)
-        
-        # Create metric cards
-        self.metric_cards = {}
-        
-        card_configs = [
-            {
-                "key": "total_servers",
-                "title": "Total\nServers",
-                "icon": "🖥",
-                "drill_down": "server_list"
-            },
-            {
-                "key": "accessible_shares", 
-                "title": "Accessible\nShares",
-                "icon": "📁",
-                "drill_down": "share_details"
-            },
-            {
-                "key": "high_risk_vulnerabilities",
-                "title": "High Risk\nVulnerabilities",
-                "icon": "🔴",
-                "drill_down": "vulnerabilities"
-            },
-            {
-                "key": "recent_discoveries",
-                "title": "Recent\nDiscoveries",
-                "icon": "⏰",
-                "drill_down": "recent_activity"
-            }
-        ]
-        
-        for i, config in enumerate(card_configs):
-            card = self._create_metric_card(config, i)
-            self.metric_cards[config["key"]] = card
     
-    def _create_metric_card(self, config: Dict[str, Any], column: int) -> Dict[str, tk.Widget]:
-        """
-        Create individual metric card.
+    
+    
+    def _build_summary_section(self) -> None:
+        """Build horizontal layout with Total Servers and expanded Recent Activity."""
+        # Horizontal layout for Total Servers + Recent Activity
+        self.summary_frame = tk.Frame(self.main_frame)
+        self.theme.apply_to_widget(self.summary_frame, "main_window")
+        self.summary_frame.pack(fill=tk.X)
         
-        Args:
-            config: Card configuration dictionary
-            column: Grid column position
-            
-        Returns:
-            Dictionary with card widgets
-        """
-        # Card frame
-        card_frame = self.theme.create_metric_card_frame(self.metrics_frame)
-        card_frame.grid(row=0, column=column, padx=5, pady=5, sticky="nsew")
+        # Configure columns: Total Servers (fixed width) + Recent Activity (expanding)
+        self.summary_frame.columnconfigure(0, weight=0)  # Total Servers - fixed width
+        self.summary_frame.columnconfigure(1, weight=1)  # Recent Activity - expandable
+        self.summary_frame.rowconfigure(0, weight=1)     # Allow row to expand for equal heights
+        
+        # Total Servers card (left side)
+        self._build_horizontal_total_servers()
+        
+        # Recent Activity (right side, expanded)
+        self._build_recent_activity()
+    
+    def _build_horizontal_total_servers(self) -> None:
+        """Build Total Servers card for horizontal layout."""
+        servers_frame = tk.Frame(self.summary_frame)
+        self.theme.apply_to_widget(servers_frame, "card")
+        servers_frame.grid(row=0, column=0, padx=(0, 8), pady=3, sticky="nsew")
+        
+        # Configure fixed width for Total Servers card (maintain width, allow height to stretch)
+        servers_frame.config(width=150)  # Optimized width for better proportions
+        servers_frame.grid_propagate(True)  # Allow height to adjust with grid
+        servers_frame.pack_propagate(False)  # Maintain fixed width for packed elements
         
         # Icon and title
-        title_frame = tk.Frame(card_frame)
-        self.theme.apply_to_widget(title_frame, "metric_card")
-        title_frame.pack(fill=tk.X)
+        title_frame = tk.Frame(servers_frame)
+        self.theme.apply_to_widget(title_frame, "card")
+        title_frame.pack(fill=tk.X, pady=(8, 3))
         
         icon_label = self.theme.create_styled_label(
             title_frame,
-            config["icon"],
+            "🖥",
             "heading"
         )
         icon_label.pack()
         
         title_label = self.theme.create_styled_label(
             title_frame,
-            config["title"],
+            "Total\nServers",
             "small",
             justify="center"
         )
-        title_label.pack(pady=(5, 10))
+        title_label.pack(pady=(5, 0))
         
         # Value display
-        value_var = tk.StringVar(value="--")
+        self.horizontal_servers_var = tk.StringVar(value="--")
         value_label = self.theme.create_styled_label(
-            card_frame,
+            servers_frame,
             "",
             "title",
-            textvariable=value_var,
+            textvariable=self.horizontal_servers_var,
             justify="center"
         )
-        value_label.pack()
+        value_label.pack(pady=(8, 8))
         
-        # Drill-down button
-        button_text = "[View Details]"
-        drill_button = tk.Button(
-            card_frame,
-            text=button_text,
-            command=lambda: self._open_drill_down(config["drill_down"])
+        # View details button (standardized styling)
+        view_button = tk.Button(
+            servers_frame,
+            text="[View Details]",
+            command=lambda: self._open_drill_down("server_list"),
+            height=1  # Fixed height for consistency
         )
-        self.theme.apply_to_widget(drill_button, "button_secondary")
-        drill_button.pack(pady=(10, 0))
-        
-        
-        return {
-            "frame": card_frame,
-            "value_var": value_var,
-            "config": config
-        }
-    
-    
-    def _build_summary_section(self) -> None:
-        """Build summary section with country breakdown and recent activity."""
-        # Two-column layout for summaries
-        self.summary_frame = tk.Frame(self.main_frame)
-        self.theme.apply_to_widget(self.summary_frame, "main_window")
-        self.summary_frame.pack(fill=tk.X)
-        
-        # Configure columns
-        self.summary_frame.columnconfigure(0, weight=1)
-        self.summary_frame.columnconfigure(1, weight=1)
-        
-        # Country breakdown (left column)
-        self._build_country_breakdown()
-        
-        # Recent activity (right column)
-        self._build_recent_activity()
-    
-    def _build_country_breakdown(self) -> None:
-        """Build country breakdown visualization."""
-        country_frame = tk.Frame(self.summary_frame)
-        self.theme.apply_to_widget(country_frame, "card")
-        country_frame.grid(row=0, column=0, padx=(0, 5), pady=5, sticky="nsew")
-        
-        # Title
-        country_title = self.theme.create_styled_label(
-            country_frame,
-            "COUNTRY BREAKDOWN",
-            "heading"
-        )
-        country_title.pack(anchor="w", padx=10, pady=(10, 5))
-        
-        # Country list container
-        self.country_list_frame = tk.Frame(country_frame)
-        self.theme.apply_to_widget(self.country_list_frame, "card")
-        self.country_list_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        # Geographic report button
-        geo_button = tk.Button(
-            country_frame,
-            text="[Geographic Report...]",
-            command=lambda: self._open_drill_down("geographic_report")
-        )
-        self.theme.apply_to_widget(geo_button, "button_secondary")
-        geo_button.pack(pady=(0, 10))
+        self.theme.apply_to_widget(view_button, "button_secondary")
+        view_button.pack(pady=(5, 10))  # Optimized padding for compact layout
     
     def _build_recent_activity(self) -> None:
-        """Build recent activity display."""
+        """Build recent activity display for expanded horizontal layout."""
         activity_frame = tk.Frame(self.summary_frame)
         self.theme.apply_to_widget(activity_frame, "card")
-        activity_frame.grid(row=0, column=1, padx=(5, 0), pady=5, sticky="nsew")
+        activity_frame.grid(row=0, column=1, padx=(8, 0), pady=3, sticky="nsew")
         
         # Title
         activity_title = self.theme.create_styled_label(
@@ -446,14 +360,15 @@ class DashboardWidget:
         self.theme.apply_to_widget(self.activity_list_frame, "card")
         self.activity_list_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
         
-        # Activity timeline button
+        # Activity timeline button (standardized styling)
         timeline_button = tk.Button(
             activity_frame,
             text="[Activity Timeline...]",
-            command=lambda: self._open_drill_down("activity_timeline")
+            command=lambda: self._open_drill_down("activity_timeline"),
+            height=1  # Fixed height for consistency
         )
         self.theme.apply_to_widget(timeline_button, "button_secondary")
-        timeline_button.pack(pady=(0, 10))
+        timeline_button.pack(pady=(5, 10))  # Optimized padding for compact layout
     
     def _refresh_dashboard_data(self) -> None:
         """
@@ -467,10 +382,6 @@ class DashboardWidget:
             summary = self.db_reader.get_dashboard_summary()
             self._update_metrics_display(summary)
             
-            # Get country breakdown
-            countries = self.db_reader.get_country_breakdown()
-            self._update_country_display(countries)
-            
             # Get recent activity
             activity = self.db_reader.get_recent_activity(days=7)
             self._update_activity_display(activity)
@@ -479,27 +390,23 @@ class DashboardWidget:
             self.last_update = datetime.now()
             self._update_status_display(summary)
             
+            # Enforce window size after data refresh to prevent auto-resizing
+            if self.size_enforcement_callback:
+                self.size_enforcement_callback()
+            
         except Exception as e:
             self._handle_refresh_error(e)
     
     def _update_metrics_display(self, summary: Dict[str, Any]) -> None:
-        """Update metric cards with new data."""
-        for key, card in self.metric_cards.items():
-            value = summary.get(key, 0)
-            
-            # Handle special formatting for recent_discoveries
-            if key == "recent_discoveries" and isinstance(value, dict):
-                display_value = value.get("display", "--")
-                # Set tooltip warning if present
-                if "warning" in value:
-                    # Add a simple tooltip or status indicator for warnings
-                    display_value = f"{display_value}"
-            elif isinstance(value, (int, float)):
-                display_value = f"{value:,}" if value >= 1000 else str(value)
+        """Update horizontal Total Servers card with new data."""
+        # Update horizontal Total Servers card
+        if hasattr(self, 'horizontal_servers_var') and self.horizontal_servers_var:
+            servers_value = summary.get("total_servers", 0)
+            if isinstance(servers_value, (int, float)):
+                display_value = f"{servers_value:,}" if servers_value >= 1000 else str(servers_value)
             else:
-                display_value = str(value)
-            
-            card["value_var"].set(display_value)
+                display_value = str(servers_value)
+            self.horizontal_servers_var.set(display_value)
     
     def _refresh_after_scan_completion(self) -> None:
         """
@@ -518,59 +425,6 @@ class DashboardWidget:
             print(f"Dashboard refresh error after scan completion: {e}")
             # Continue anyway
     
-    def _update_country_display(self, countries: Dict[str, int]) -> None:
-        """Update country breakdown display."""
-        # Clear existing countries
-        for widget in self.country_list_frame.winfo_children():
-            widget.destroy()
-        
-        if not countries:
-            no_countries_label = self.theme.create_styled_label(
-                self.country_list_frame,
-                "No country data available",
-                "small",
-                fg=self.theme.colors["text_secondary"]
-            )
-            no_countries_label.pack(pady=5)
-            return
-        
-        # Calculate percentages
-        total = sum(countries.values())
-        
-        for country, count in list(countries.items())[:5]:  # Top 5 countries
-            percentage = (count / total * 100) if total > 0 else 0
-            
-            country_frame = tk.Frame(self.country_list_frame)
-            self.theme.apply_to_widget(country_frame, "card")
-            country_frame.pack(fill=tk.X, pady=1)
-            
-            # Country label
-            country_label = self.theme.create_styled_label(
-                country_frame,
-                f"{country}: ",
-                "small"
-            )
-            country_label.pack(side=tk.LEFT)
-            
-            # Progress bar representation
-            bar_length = int(percentage / 10)  # Scale to max 10 characters
-            bar_text = "█" * bar_length + "░" * (10 - bar_length)
-            
-            bar_label = self.theme.create_styled_label(
-                country_frame,
-                bar_text,
-                "mono_small",
-                fg=self.theme.colors["accent"]
-            )
-            bar_label.pack(side=tk.LEFT, padx=(5, 10))
-            
-            # Percentage label
-            pct_label = self.theme.create_styled_label(
-                country_frame,
-                f"{percentage:.0f}%",
-                "small"
-            )
-            pct_label.pack(side=tk.LEFT)
     
     def _update_activity_display(self, activity: List[Dict[str, Any]]) -> None:
         """Update recent activity display."""
@@ -676,8 +530,16 @@ class DashboardWidget:
         
         self.progress_text.set(message)
         
-        # Force UI update
-        self.parent.update_idletasks()
+        # Force UI update without triggering window auto-resize
+        # Using update() instead of update_idletasks() to prevent geometry recalculation
+        try:
+            self.parent.update()
+            # Enforce window size after UI update to prevent auto-resizing
+            if self.size_enforcement_callback:
+                self.size_enforcement_callback()
+        except tk.TclError:
+            # UI may be destroyed, ignore
+            pass
     
     def finish_scan_progress(self, success: bool, results: Dict[str, Any]) -> None:
         """
@@ -832,9 +694,13 @@ class DashboardWidget:
             if status:
                 self.progress_detail_text.set(status)
             
-            # Force UI update safely
+            # Force UI update safely without triggering window auto-resize
+            # Using update() instead of update_idletasks() to prevent geometry recalculation
             try:
-                self.parent.update_idletasks()
+                self.parent.update()
+                # Enforce window size after UI update to prevent auto-resizing
+                if self.size_enforcement_callback:
+                    self.size_enforcement_callback()
             except tk.TclError:
                 # UI may be destroyed, ignore
                 pass
