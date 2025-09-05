@@ -17,7 +17,10 @@ from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from error_codes import get_error, format_error_message
+try:
+    from error_codes import get_error, format_error_message
+except ImportError:
+    from .error_codes import get_error, format_error_message
 
 
 class DatabaseReader:
@@ -626,92 +629,189 @@ class DatabaseReader:
     def _query_server_list(self, limit: int, offset: int, 
                           country_filter: Optional[str],
                           recent_scan_only: bool = False) -> Tuple[List[Dict], int]:
-        """Execute server list query with pagination."""
+        """Execute server list query with enhanced share tracking data."""
         with self._get_connection() as conn:
-            # Base query
-            where_clause = "WHERE s.status = 'active'"
-            params = []
-            
-            if country_filter:
-                where_clause += " AND s.country_code = ?"
-                params.append(country_filter)
-            
-            # Filter for recent scan only
-            if recent_scan_only:
-                # Get the most recent server timestamp (indicates most recent scan activity)
-                recent_timestamp_query = """
-                SELECT MAX(last_seen) as recent_timestamp
-                FROM smb_servers
-                WHERE status = 'active'
-                """
-                timestamp_result = conn.execute(recent_timestamp_query).fetchone()
-                if timestamp_result and timestamp_result["recent_timestamp"]:
-                    recent_time = timestamp_result["recent_timestamp"]
-                    # Filter servers seen within 1 hour of the most recent activity
-                    # This captures servers from the most recent scanning session
-                    where_clause += " AND s.last_seen >= datetime(?, '-1 hour')"
-                    params.append(recent_time)
-            
-            # Count query
-            count_query = f"""
-            SELECT COUNT(*) as total
-            FROM smb_servers s
-            {where_clause}
+            # Check if enhanced view exists, fall back to legacy query if not
+            view_exists_query = """
+            SELECT name FROM sqlite_master 
+            WHERE type='view' AND name='v_host_share_summary'
             """
+            view_exists = conn.execute(view_exists_query).fetchone() is not None
             
-            total_count = conn.execute(count_query, params).fetchone()["total"]
-            
-            # Corrected query - proper aggregation to prevent share count multiplication
-            data_query = f"""
+            if view_exists:
+                return self._query_server_list_enhanced(conn, limit, offset, country_filter, recent_scan_only)
+            else:
+                return self._query_server_list_legacy(conn, limit, offset, country_filter, recent_scan_only)
+    
+    def _query_server_list_enhanced(self, conn: sqlite3.Connection, limit: int, offset: int,
+                                   country_filter: Optional[str], recent_scan_only: bool) -> Tuple[List[Dict], int]:
+        """Execute enhanced server list query using v_host_share_summary view."""
+        # Base query using enhanced view
+        where_clause = "WHERE 1=1"
+        params = []
+        
+        if country_filter:
+            where_clause += " AND country_code = ?"
+            params.append(country_filter)
+        
+        # Filter for recent scan only
+        if recent_scan_only:
+            # Get the most recent server timestamp (indicates most recent scan activity)
+            recent_timestamp_query = """
+            SELECT MAX(last_seen) as recent_timestamp
+            FROM v_host_share_summary
+            """
+            timestamp_result = conn.execute(recent_timestamp_query).fetchone()
+            if timestamp_result and timestamp_result["recent_timestamp"]:
+                recent_time = timestamp_result["recent_timestamp"]
+                # Filter servers seen within 1 hour of the most recent activity
+                where_clause += " AND last_seen >= datetime(?, '-1 hour')"
+                params.append(recent_time)
+        
+        # Count query
+        count_query = f"""
+        SELECT COUNT(*) as total
+        FROM v_host_share_summary
+        {where_clause}
+        """
+        
+        total_count = conn.execute(count_query, params).fetchone()["total"]
+        
+        # Enhanced data query using the new view
+        data_query = f"""
+        SELECT 
+            ip_address,
+            country,
+            country_code,
+            auth_method,
+            last_seen,
+            scan_count,
+            total_shares_discovered,
+            accessible_shares_count,
+            accessible_shares_list,
+            access_rate_percent
+        FROM v_host_share_summary
+        {where_clause}
+        ORDER BY last_seen DESC
+        LIMIT ? OFFSET ?
+        """
+        
+        params.extend([limit, offset])
+        results = conn.execute(data_query, params).fetchall()
+        
+        servers = [
+            {
+                "ip_address": row["ip_address"],
+                "country": row["country"],
+                "country_code": row["country_code"],
+                "auth_method": row["auth_method"],
+                "last_seen": row["last_seen"],
+                "scan_count": row["scan_count"],
+                "total_shares": row["total_shares_discovered"],
+                "accessible_shares": row["accessible_shares_count"],
+                "accessible_shares_list": row["accessible_shares_list"] or "",
+                "access_rate_percent": row["access_rate_percent"],
+                # Include vulnerabilities as 0 for backward compatibility
+                "vulnerabilities": 0
+            }
+            for row in results
+        ]
+        
+        return servers, total_count
+    
+    def _query_server_list_legacy(self, conn: sqlite3.Connection, limit: int, offset: int,
+                                 country_filter: Optional[str], recent_scan_only: bool) -> Tuple[List[Dict], int]:
+        """Execute legacy server list query for backward compatibility."""
+        # Base query
+        where_clause = "WHERE s.status = 'active'"
+        params = []
+        
+        if country_filter:
+            where_clause += " AND s.country_code = ?"
+            params.append(country_filter)
+        
+        # Filter for recent scan only
+        if recent_scan_only:
+            # Get the most recent server timestamp (indicates most recent scan activity)
+            recent_timestamp_query = """
+            SELECT MAX(last_seen) as recent_timestamp
+            FROM smb_servers
+            WHERE status = 'active'
+            """
+            timestamp_result = conn.execute(recent_timestamp_query).fetchone()
+            if timestamp_result and timestamp_result["recent_timestamp"]:
+                recent_time = timestamp_result["recent_timestamp"]
+                # Filter servers seen within 1 hour of the most recent activity
+                # This captures servers from the most recent scanning session
+                where_clause += " AND s.last_seen >= datetime(?, '-1 hour')"
+                params.append(recent_time)
+        
+        # Count query
+        count_query = f"""
+        SELECT COUNT(*) as total
+        FROM smb_servers s
+        {where_clause}
+        """
+        
+        total_count = conn.execute(count_query, params).fetchone()["total"]
+        
+        # Enhanced legacy query - includes comma-separated share list generation
+        data_query = f"""
+        SELECT 
+            s.ip_address,
+            s.country,
+            s.country_code,
+            s.auth_method,
+            s.last_seen,
+            s.scan_count,
+            COALESCE(sa_summary.total_shares, 0) as total_shares,
+            COALESCE(sa_summary.accessible_shares, 0) as accessible_shares,
+            COALESCE(sa_summary.accessible_shares_list, '') as accessible_shares_list,
+            COALESCE(v_summary.vulnerabilities, 0) as vulnerabilities
+        FROM smb_servers s
+        LEFT JOIN (
             SELECT 
-                s.ip_address,
-                s.country,
-                s.country_code,
-                s.auth_method,
-                s.last_seen,
-                s.scan_count,
-                COALESCE(sa_summary.total_shares, 0) as total_shares,
-                COALESCE(sa_summary.accessible_shares, 0) as accessible_shares,
-                COALESCE(v_summary.vulnerabilities, 0) as vulnerabilities
-            FROM smb_servers s
-            LEFT JOIN (
-                SELECT 
-                    server_id,
-                    COUNT(share_name) as total_shares,
-                    COUNT(CASE WHEN accessible = 1 THEN 1 END) as accessible_shares
-                FROM share_access
-                GROUP BY server_id
-            ) sa_summary ON s.id = sa_summary.server_id
-            LEFT JOIN (
-                SELECT server_id, COUNT(*) as vulnerabilities
-                FROM vulnerabilities 
-                WHERE status = 'open'
-                GROUP BY server_id
-            ) v_summary ON s.id = v_summary.server_id
-            {where_clause}
-            ORDER BY s.last_seen DESC
-            LIMIT ? OFFSET ?
-            """
-            
-            params.extend([limit, offset])
-            results = conn.execute(data_query, params).fetchall()
-            
-            servers = [
-                {
-                    "ip_address": row["ip_address"],
-                    "country": row["country"],
-                    "country_code": row["country_code"],
-                    "auth_method": row["auth_method"],
-                    "last_seen": row["last_seen"],
-                    "scan_count": row["scan_count"],
-                    "total_shares": row["total_shares"],
-                    "accessible_shares": row["accessible_shares"],
-                    "vulnerabilities": row["vulnerabilities"]
-                }
-                for row in results
-            ]
-            
-            return servers, total_count
+                server_id,
+                COUNT(share_name) as total_shares,
+                COUNT(CASE WHEN accessible = 1 THEN 1 END) as accessible_shares,
+                GROUP_CONCAT(
+                    CASE WHEN accessible = 1 THEN share_name END, 
+                    ','
+                ) as accessible_shares_list
+            FROM share_access
+            GROUP BY server_id
+        ) sa_summary ON s.id = sa_summary.server_id
+        LEFT JOIN (
+            SELECT server_id, COUNT(*) as vulnerabilities
+            FROM vulnerabilities 
+            WHERE status = 'open'
+            GROUP BY server_id
+        ) v_summary ON s.id = v_summary.server_id
+        {where_clause}
+        ORDER BY s.last_seen DESC
+        LIMIT ? OFFSET ?
+        """
+        
+        params.extend([limit, offset])
+        results = conn.execute(data_query, params).fetchall()
+        
+        servers = [
+            {
+                "ip_address": row["ip_address"],
+                "country": row["country"],
+                "country_code": row["country_code"],
+                "auth_method": row["auth_method"],
+                "last_seen": row["last_seen"],
+                "scan_count": row["scan_count"],
+                "total_shares": row["total_shares"],
+                "accessible_shares": row["accessible_shares"],
+                "accessible_shares_list": row["accessible_shares_list"] or "",
+                "vulnerabilities": row["vulnerabilities"]
+            }
+            for row in results
+        ]
+        
+        return servers, total_count
     
     def _is_cached(self, key: str) -> bool:
         """Check if data is cached and still valid."""

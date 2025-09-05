@@ -23,10 +23,17 @@ import platform
 # Add utils to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
 
-from gui.utils.database_access import DatabaseReader
-from gui.utils.style import get_theme
-from gui.utils.data_export_engine import get_export_engine
-from gui.utils.scan_manager import get_scan_manager
+try:
+    from gui.utils.database_access import DatabaseReader
+    from gui.utils.style import get_theme
+    from gui.utils.data_export_engine import get_export_engine
+    from gui.utils.scan_manager import get_scan_manager
+except ImportError:
+    # Handle relative imports when running from gui directory
+    from utils.database_access import DatabaseReader
+    from utils.style import get_theme
+    from utils.data_export_engine import get_export_engine
+    from utils.scan_manager import get_scan_manager
 
 
 class ServerListWindow:
@@ -70,20 +77,14 @@ class ServerListWindow:
         self.tree = None
         self.scrollbar_v = None
         self.scrollbar_h = None
-        # Filter variables
+        # Filter variables - simplified for enhanced share tracking
         self.search_text = tk.StringVar()
         self.search_var = tk.StringVar()  # Additional search reference
-        self.country_filter = tk.StringVar(value="All")
-        self.auth_filter = tk.StringVar(value="All") 
-        self.vuln_filter = tk.StringVar(value="All")
         self.date_filter = tk.StringVar(value="All")
         self.shares_filter = tk.StringVar(value="All")
         
-        # Filter UI components
+        # Filter UI components - simplified
         self.advanced_filters_frame = None
-        self.country_combo = None
-        self.auth_combo = None
-        self.vuln_combo = None
         self.date_combo = None
         self.shares_filter_checkbox = None
         
@@ -113,7 +114,7 @@ class ServerListWindow:
         """Create the server list window."""
         self.window = tk.Toplevel(self.parent)
         self.window.title("SMBSeek - Server List Browser")
-        self.window.geometry("1000x700")
+        self.window.geometry("1500x1000")
         self.window.minsize(800, 500)
         
         # Apply theme
@@ -242,7 +243,7 @@ class ServerListWindow:
         self.advanced_filters_frame = tk.Frame(self.filter_frame)
         self.theme.apply_to_widget(self.advanced_filters_frame, "card")
 
-        # Accessible shares filter (checkbox)
+        # Accessible shares filter (checkbox) - simplified filtering
         shares_filter_frame = tk.Frame(self.advanced_filters_frame)
         self.theme.apply_to_widget(shares_filter_frame, "card")
         shares_filter_frame.pack(side=tk.LEFT, padx=10, pady=5)
@@ -254,71 +255,6 @@ class ServerListWindow:
             command=self._apply_filters
         )
         self.shares_filter_checkbox.pack()
-
-        # Country filter
-        country_frame = tk.Frame(self.advanced_filters_frame)
-        self.theme.apply_to_widget(country_frame, "card")
-        country_frame.pack(side=tk.LEFT, padx=10, pady=5)
-
-        country_label = self.theme.create_styled_label(
-            country_frame,
-            "Country:",
-            "small"
-        )
-        country_label.pack()
-
-        self.country_combo = ttk.Combobox(
-            country_frame,
-            textvariable=self.country_filter,
-            width=10,
-            state="readonly"
-        )
-        self.country_combo.pack()
-        self.country_combo.bind("<<ComboboxSelected>>", lambda e: self._apply_filters())
-        
-        # Auth method filter
-        auth_frame = tk.Frame(self.advanced_filters_frame)
-        self.theme.apply_to_widget(auth_frame, "card")
-        auth_frame.pack(side=tk.LEFT, padx=10, pady=5)
-        
-        auth_label = self.theme.create_styled_label(
-            auth_frame,
-            "Auth Method:",
-            "small"
-        )
-        auth_label.pack()
-        
-        self.auth_combo = ttk.Combobox(
-            auth_frame,
-            textvariable=self.auth_filter,
-            width=12,
-            state="readonly"
-        )
-        self.auth_combo.pack()
-        self.auth_combo.bind("<<ComboboxSelected>>", lambda e: self._apply_filters())
-        
-        # Vulnerability filter
-        vuln_frame = tk.Frame(self.advanced_filters_frame)
-        self.theme.apply_to_widget(vuln_frame, "card")
-        vuln_frame.pack(side=tk.LEFT, padx=10, pady=5)
-        
-        vuln_label = self.theme.create_styled_label(
-            vuln_frame,
-            "Has Vulnerabilities:",
-            "small"
-        )
-        vuln_label.pack()
-        
-        self.vuln_combo = ttk.Combobox(
-            vuln_frame,
-            textvariable=self.vuln_filter,
-            values=["All", "Yes", "No"],
-            width=8,
-            state="readonly"
-        )
-        self.vuln_combo.set("All")
-        self.vuln_combo.pack()
-        self.vuln_combo.bind("<<ComboboxSelected>>", lambda e: self._apply_filters())
         
         # Date filter
         date_frame = tk.Frame(self.advanced_filters_frame)
@@ -362,13 +298,11 @@ class ServerListWindow:
         self.theme.apply_to_widget(self.table_frame, "main_window")
         self.table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Define columns
+        # Define columns - updated for enhanced share tracking
         columns = (
             "IP Address",
-            "Country",
-            "Auth Method", 
             "Shares",
-            "Vulnerabilities",
+            "Accessible",
             "Last Seen",
             "Scan Count"
         )
@@ -381,15 +315,13 @@ class ServerListWindow:
             selectmode="extended"
         )
         
-        # Configure columns
+        # Configure columns - optimized dimensions for enhanced share tracking
         self.tree.column("#0", width=0, stretch=False)  # Hide tree column
-        self.tree.column("IP Address", width=120, anchor="w")
-        self.tree.column("Country", width=80, anchor="w")
-        self.tree.column("Auth Method", width=100, anchor="w")
-        self.tree.column("Shares", width=60, anchor="center")
-        self.tree.column("Vulnerabilities", width=90, anchor="center")
-        self.tree.column("Last Seen", width=120, anchor="w")
-        self.tree.column("Scan Count", width=80, anchor="center")
+        self.tree.column("IP Address", width=160, anchor="w")
+        self.tree.column("Shares", width=100, anchor="center")
+        self.tree.column("Accessible", width=900, anchor="w")  # Extra wide for extensive share lists
+        self.tree.column("Last Seen", width=200, anchor="w")
+        self.tree.column("Scan Count", width=100, anchor="center", stretch=True)  # Flexible width
         
         # Configure headings
         for col in columns:
@@ -487,12 +419,9 @@ class ServerListWindow:
         Called when user clicks "View Details" on Recent Discoveries dashboard card.
         """
         try:
-            # Clear existing filters first
+            # Clear existing filters first - updated for simplified filtering
             self.search_text.set("")
-            self.country_filter.set("All")
-            self.auth_filter.set("All") 
-            self.vuln_filter.set("All")
-            self.date_combo.set("All Time")
+            self.date_filter.set("All")
             
             # Load servers with recent scan filter
             servers, total_count = self.db_reader.get_server_list(
@@ -560,61 +489,25 @@ class ServerListWindow:
             )
     
     def _populate_filter_options(self) -> None:
-        """Populate filter dropdown options based on data."""
+        """Populate filter dropdown options based on data - simplified for enhanced tracking."""
         if not self.all_servers:
             return
         
-        # Get unique values for filters
-        countries = sorted(set(server.get("country_code", "") for server in self.all_servers if server.get("country_code")))
-        auth_methods = sorted(set(server.get("auth_method", "") for server in self.all_servers if server.get("auth_method")))
-        
-        # Update combobox values
-        self.country_combo['values'] = ["All"] + countries
-        self.auth_combo['values'] = ["All"] + auth_methods
-        
-        # Set default selections
-        self.country_filter.set("All")
-        self.auth_filter.set("All")
+        # No longer need to populate country/auth filters since they've been removed
+        # Date filter options are static and defined in the UI creation
     
     def _apply_filters(self) -> None:
-        """Apply current filters to server list."""
+        """Apply current filters to server list - simplified for enhanced share tracking."""
         filtered = self.all_servers[:]
         
-        # Apply search filter
+        # Apply search filter (IP address and accessible shares list)
         search_term = self.search_text.get().lower()
         if search_term:
             filtered = [
                 server for server in filtered
                 if search_term in server.get("ip_address", "").lower() or
-                   search_term in server.get("country", "").lower()
+                   search_term in server.get("accessible_shares_list", "").lower()
             ]
-        
-        # Apply country filter
-        if self.country_filter.get() and self.country_filter.get() != "All":
-            filtered = [
-                server for server in filtered
-                if server.get("country_code") == self.country_filter.get()
-            ]
-        
-        # Apply auth method filter
-        if self.auth_filter.get() and self.auth_filter.get() != "All":
-            filtered = [
-                server for server in filtered
-                if server.get("auth_method") == self.auth_filter.get()
-            ]
-        
-        # Apply vulnerability filter
-        if self.vuln_filter.get() and self.vuln_filter.get() != "All":
-            if self.vuln_filter.get() == "Yes":
-                filtered = [
-                    server for server in filtered
-                    if server.get("vulnerabilities", 0) > 0
-                ]
-            elif self.vuln_filter.get() == "No":
-                filtered = [
-                    server for server in filtered
-                    if server.get("vulnerabilities", 0) == 0
-                ]
         
         # Apply date filter
         date_filter_value = self.date_filter.get()
@@ -689,12 +582,10 @@ class ServerListWindow:
         
         # Add filtered servers
         for server in self.filtered_servers:
-            # Format display values
+            # Format display values - updated for enhanced share tracking
             ip_addr = server.get("ip_address", "")
-            country = server.get("country_code", "Unknown")
-            auth_method = server.get("auth_method", "Unknown")
-            shares = str(server.get("accessible_shares", 0))
-            vulns = str(server.get("vulnerabilities", 0))
+            shares_count = str(server.get("accessible_shares", 0))
+            accessible_shares = server.get("accessible_shares_list", "")
             last_seen = server.get("last_seen", "Never")
             scan_count = str(server.get("scan_count", 0))
             
@@ -706,25 +597,24 @@ class ServerListWindow:
                 except:
                     pass
             
-            # Insert row with color coding
+            # Format accessible shares list (ensure no spaces after commas)
+            if accessible_shares:
+                # Remove any spaces after commas and ensure clean formatting
+                accessible_shares = ",".join([share.strip() for share in accessible_shares.split(",") if share.strip()])
+            
+            # Insert row with new column structure
             item_id = self.tree.insert(
                 "",
                 "end",
-                values=(ip_addr, country, auth_method, shares, vulns, last_seen, scan_count)
+                values=(ip_addr, shares_count, accessible_shares, last_seen, scan_count)
             )
             
-            # Color code based on vulnerability count
-            vuln_count = server.get("vulnerabilities", 0)
-            if vuln_count > 0:
-                # Color coding for vulnerable servers
-                if vuln_count >= 3:
-                    self.tree.set(item_id, "Vulnerabilities", f"🔴 {vulns}")
-                elif vuln_count >= 1:
-                    self.tree.set(item_id, "Vulnerabilities", f"🟡 {vulns}")
-            
-            # Share count indicators
+            # Add visual indicators for shares count
             share_count = server.get("accessible_shares", 0)
-            self.tree.set(item_id, "Shares", f"📁 {shares}")
+            if share_count > 0:
+                self.tree.set(item_id, "Shares", f"📁 {shares_count}")
+            else:
+                self.tree.set(item_id, "Shares", shares_count)
         
         # Update status
         self.count_label.configure(
@@ -743,8 +633,8 @@ class ServerListWindow:
             col_index = self.tree["columns"].index(column)
             sort_key = values[col_index]
             
-            # Convert to appropriate type for sorting
-            if column in ["Shares", "Vulnerabilities", "Scan Count"]:
+            # Convert to appropriate type for sorting - updated for new columns
+            if column in ["Shares", "Scan Count"]:
                 # Extract number from string (remove emojis)
                 import re
                 numbers = re.findall(r'\d+', str(sort_key))
@@ -755,6 +645,9 @@ class ServerListWindow:
                     sort_key = datetime.strptime(sort_key, "%Y-%m-%d %H:%M")
                 except:
                     sort_key = datetime.min
+            elif column == "Accessible":
+                # Sort by length of accessible shares list (number of shares)
+                sort_key = len(str(sort_key).split(",")) if str(sort_key).strip() else 0
             
             data_with_keys.append((sort_key, item, values))
         
@@ -828,10 +721,10 @@ class ServerListWindow:
             messagebox.showwarning("Multiple Selection", "Please select only one server to view details.")
             return
         
-        # Get server data
+        # Get server data - updated for new column structure
         item = selected_items[0]
         values = self.tree.item(item)["values"]
-        ip_address = values[0]
+        ip_address = values[0]  # IP Address is still first column
         
         # Find server in data
         server_data = next(
@@ -957,7 +850,22 @@ class ServerListWindow:
             )
     
     def _format_server_details(self, server: Dict[str, Any]) -> str:
-        """Format server details for display."""
+        """Format server details for display with accessible shares list."""
+        # Extract share information
+        accessible_list = server.get('accessible_shares_list', '')
+        accessible_count = server.get('accessible_shares', 0)
+        total_shares = server.get('total_shares', accessible_count)
+        
+        # Format accessible shares list
+        if accessible_list and accessible_list.strip():
+            shares = [share.strip() for share in accessible_list.split(',') if share.strip()]
+            if shares:
+                share_list_text = '\n'.join([f'   • {share}' for share in shares])
+            else:
+                share_list_text = '   • None accessible'
+        else:
+            share_list_text = '   • None accessible'
+        
         details = f"""📋 SMB Server Details
         
 🖥 Basic Information:
@@ -972,7 +880,11 @@ class ServerListWindow:
    Status: {server.get('status', 'Unknown')}
    
 📁 Share Access:
-   Accessible Shares: {server.get('accessible_shares', 0)}
+   Total Shares Discovered: {total_shares}
+   Accessible Shares: {accessible_count}
+   
+   Accessible Share List:
+{share_list_text}
    
 🔒 Security Assessment:
    Vulnerabilities: {server.get('vulnerabilities', 0)}
@@ -1077,14 +989,14 @@ class ServerListWindow:
             
             progress_window.update()
             
-            # Prepare filters applied info
+            # Prepare filters applied info - simplified for enhanced tracking
             filters_applied = {}
-            if self.country_filter.get() != "All":
-                filters_applied['country'] = self.country_filter.get()
-            if self.auth_filter.get() != "All":
-                filters_applied['auth_method'] = self.auth_filter.get()
-            if self.search_var.get():
-                filters_applied['search'] = self.search_var.get()
+            if self.search_text.get():
+                filters_applied['search'] = self.search_text.get()
+            if self.date_filter.get() != "All":
+                filters_applied['date_filter'] = self.date_filter.get()
+            if self.shares_filter.get():
+                filters_applied['shares_filter'] = "accessible_only"
             
             # Progress callback
             def update_progress(percentage, message):
@@ -1191,12 +1103,10 @@ class ServerListWindow:
         self._apply_filters()
     
     def _reset_filters(self) -> None:
-        """Reset all filters to default values."""
+        """Reset all filters to default values - simplified for enhanced tracking."""
         self.search_text.set("")
-        self.country_filter.set("All")
-        self.auth_filter.set("All")
-        self.vuln_filter.set("All")
         self.date_filter.set("All")
+        self.shares_filter.set("")
         self._apply_filters()
     
     def _refresh_data(self) -> None:
