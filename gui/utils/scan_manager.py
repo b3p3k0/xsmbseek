@@ -77,6 +77,9 @@ class ScanManager:
         
         # Clean up any stale lock files on startup
         self._cleanup_stale_locks()
+        
+        # Also initialize backend interface cleanup if backend_interface is available
+        self._initialize_backend_lock_cleanup()
     
     def _process_exists(self, pid: int) -> bool:
         """
@@ -119,6 +122,48 @@ class ScanManager:
                 # Invalid or corrupted lock file, remove it
                 if self.lock_file.exists():
                     self.lock_file.unlink()
+    
+    def _initialize_backend_lock_cleanup(self) -> None:
+        """
+        Initialize backend interface lock cleanup for coordination.
+        
+        Ensures that both GUI and backend lock files are cleaned up
+        as recommended by backend team integration guidelines.
+        """
+        try:
+            # Clean up any additional lock patterns that might exist
+            lock_patterns = [
+                ".scan_lock",
+                ".access_lock", 
+                ".discovery_lock",
+                ".collection_lock"
+            ]
+            
+            for pattern in lock_patterns:
+                lock_path = self.gui_dir / pattern
+                if lock_path.exists():
+                    try:
+                        # Check if lock file contains process information
+                        with open(lock_path, 'r') as f:
+                            lock_data = json.load(f)
+                        
+                        # Check if process is still running
+                        pid = lock_data.get('process_id')
+                        if pid and self._process_exists(pid):
+                            # Process still exists, lock is valid
+                            continue
+                        
+                        # Process doesn't exist, remove stale lock
+                        lock_path.unlink()
+                        
+                    except (json.JSONDecodeError, FileNotFoundError, KeyError):
+                        # Invalid or corrupted lock file, remove it
+                        if lock_path.exists():
+                            lock_path.unlink()
+                            
+        except Exception:
+            # Non-critical cleanup failure - continue without error
+            pass
     
     def is_scan_active(self) -> bool:
         """

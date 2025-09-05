@@ -65,7 +65,13 @@ class BackendInterface:
         # Timeout configuration - loaded from config with environment override support
         self.default_timeout = None  # No timeout by default
         self.enable_debug_timeouts = False
+        
+        # Recent filtering configuration - loaded from SMBSeek config
+        self.default_recent_days = 90  # Default 90 days as per backend team recommendations
+        
         self._load_timeout_configuration()
+        self._load_workflow_configuration()
+        self._cleanup_startup_locks()
         
         self._validate_backend()
     
@@ -130,7 +136,8 @@ class BackendInterface:
     
     def _extract_error_details(self, full_output: str, cmd: List[str]) -> str:
         """
-        Extract meaningful error details from SMBSeek CLI output.
+        Extract meaningful error details from SMBSeek CLI output with enhanced
+        error handling for recent filtering scenarios.
         
         Args:
             full_output: Complete output from failed command
@@ -140,6 +147,18 @@ class BackendInterface:
             User-friendly error message with actual CLI error details
         """
         lines = full_output.split('\n')
+        
+        # Check for specific recent filtering errors first (as per backend team recommendations)
+        for line in lines:
+            line_clean = re.sub(r'\x1b\[[0-9;]*m', '', line).strip()
+            
+            # Pattern: "No authenticated hosts found from the last N hours"
+            if "No authenticated hosts found from the last" in line_clean:
+                return f"RECENT_HOSTS_ERROR: {line_clean}"
+            
+            # Pattern: "None of the specified servers are authenticated"
+            if "None of the specified servers are authenticated" in line_clean:
+                return f"SERVERS_NOT_AUTHENTICATED: {line_clean}"
         
         # Look for common error patterns
         error_indicators = [
@@ -220,12 +239,13 @@ class BackendInterface:
     
     def _load_timeout_configuration(self) -> None:
         """
-        Load timeout configuration from config file with environment override support.
+        Load timeout configuration from config files with environment override support.
         
         Configuration hierarchy (highest priority first):
         1. Environment variable: SMBSEEK_GUI_TIMEOUT
-        2. Config file gui.operation_timeout_seconds
-        3. Default: None (no timeout)
+        2. xsmbseek-config.json gui.operation_timeout_seconds
+        3. SMBSeek config.json gui.operation_timeout_seconds (if present)
+        4. Default: None (no timeout)
         
         Design Decision: Multi-level configuration allows development, testing, 
         and production flexibility while maintaining safe defaults.
@@ -240,7 +260,23 @@ class BackendInterface:
                     self.default_timeout = int(env_timeout)
                 return
             
-            # Load from config file
+            # Try to load from GUI config first (xsmbseek-config.json)
+            gui_config_path = self.backend_path.parent / "xsmbseek-config.json"
+            if gui_config_path.exists():
+                with open(gui_config_path, 'r') as f:
+                    gui_config = json.load(f)
+                
+                gui_settings = gui_config.get('gui', {})
+                if 'operation_timeout_seconds' in gui_settings:
+                    self.default_timeout = gui_settings.get('operation_timeout_seconds', None)
+                    self.enable_debug_timeouts = gui_settings.get('enable_debug_timeouts', False)
+                    
+                    # Handle explicit zero as no timeout
+                    if self.default_timeout == 0:
+                        self.default_timeout = None
+                    return
+            
+            # Fallback to SMBSeek config file
             if self.config_path.exists():
                 with open(self.config_path, 'r') as f:
                     config = json.load(f)
@@ -259,6 +295,96 @@ class BackendInterface:
             self.enable_debug_timeouts = False
             print(f"Warning: Could not load timeout configuration: {e}")
             print("Using default: no timeout")
+    
+    def _load_workflow_configuration(self) -> None:
+        """
+        Load workflow configuration from SMBSeek config file.
+        
+        Loads settings for recent filtering and other workflow parameters.
+        """
+        try:
+            if self.config_path.exists():
+                with open(self.config_path, 'r') as f:
+                    config = json.load(f)
+                
+                workflow_config = config.get('workflow', {})
+                self.default_recent_days = workflow_config.get('access_recent_days', 90)
+                
+        except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+            # Fallback to safe defaults
+            self.default_recent_days = 90
+            print(f"Warning: Could not load workflow configuration: {e}")
+            print("Using default: 90 days for recent filtering")
+    
+    def _cleanup_startup_locks(self) -> None:
+        """
+        Clean up stale lock files on startup as recommended by backend team.
+        
+        Ensures proper coordination between GUI and backend operations by
+        removing orphaned lock files from crashed processes.
+        """
+        try:
+            # Define GUI directory (parent of backend path for xsmbseek layout)
+            gui_dir = self.backend_path.parent
+            
+            # Clean up potential GUI lock files in xsmbseek directory
+            gui_lock_patterns = [
+                ".scan_lock",
+                ".gui_operation_lock",
+                ".access_verification_lock"
+            ]
+            
+            for pattern in gui_lock_patterns:
+                lock_path = gui_dir / pattern
+                if lock_path.exists():
+                    try:
+                        # Check if lock file contains process information
+                        with open(lock_path, 'r') as f:
+                            lock_data = json.load(f)
+                        
+                        # Check if process is still running
+                        pid = lock_data.get('process_id')
+                        if pid and self._process_exists(pid):
+                            # Process still exists, lock is valid - keep it
+                            continue
+                        
+                        # Process doesn't exist, remove stale lock
+                        lock_path.unlink()
+                        
+                    except (json.JSONDecodeError, FileNotFoundError, KeyError):
+                        # Invalid or corrupted lock file, remove it
+                        if lock_path.exists():
+                            lock_path.unlink()
+            
+        except Exception:
+            # Non-critical cleanup failure - continue without error
+            # Backend team noted this should be graceful and not interrupt operations
+            pass
+    
+    def _process_exists(self, pid: int) -> bool:
+        """
+        Check if process with given PID exists (for lock file validation).
+        
+        Args:
+            pid: Process ID to check
+            
+        Returns:
+            True if process exists, False otherwise
+        """
+        try:
+            # Try psutil first if available (more reliable)
+            try:
+                import psutil
+                return psutil.pid_exists(pid)
+            except ImportError:
+                pass
+            
+            # Fallback method using os.kill with signal 0
+            import os
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
     
     def _get_operation_timeout(self, timeout_override: Optional[int] = None) -> Optional[int]:
         """
@@ -323,19 +449,22 @@ class BackendInterface:
             'config_file_exists': self.config_path.exists()
         }
     
-    def run_scan(self, countries: List[str], progress_callback: Optional[Callable] = None) -> Dict:
+    def run_scan(self, countries: List[str], progress_callback: Optional[Callable] = None,
+                 use_recent_filtering: bool = True, recent_days: Optional[int] = None) -> Dict:
         """
         Execute complete SMBSeek scan workflow.
         
         Args:
             countries: List of country codes to scan
             progress_callback: Function to call with progress updates
+            use_recent_filtering: Whether to apply recent filtering (default True)
+            recent_days: Days for recent filtering (None uses config default)
             
         Returns:
             Dictionary with scan results and statistics
             
-        Design Decision: Wrapper around 'smbseek run' command provides the
-        most common GUI operation with progress tracking.
+        Design Decision: Updated to use recent filtering by default to prevent
+        duplicate scanning as recommended by backend team.
         """
         if self.mock_mode:
             return self._mock_scan_operation(countries, progress_callback)
@@ -347,6 +476,13 @@ class BackendInterface:
             "--country", countries_str,
             "--verbose"  # For detailed progress parsing
         ]
+        
+        # Add recent filtering if enabled (default behavior)
+        if use_recent_filtering:
+            if recent_days is None:
+                recent_days = self.default_recent_days
+            recent_hours = recent_days * 24
+            cmd.extend(["--recent", str(recent_hours)])
         
         return self._execute_with_progress(cmd, progress_callback)
     
@@ -373,6 +509,116 @@ class BackendInterface:
         ]
         
         return self._execute_with_progress(cmd, progress_callback)
+    
+    def run_access_verification(self, recent_days: Optional[int] = None, 
+                               progress_callback: Optional[Callable] = None) -> Dict:
+        """
+        Execute access verification operation with recent filtering.
+        
+        Args:
+            recent_days: Filter to hosts from last N days (None uses config default)
+            progress_callback: Function to call with progress updates
+            
+        Returns:
+            Dictionary with access verification results
+            
+        Implementation: Uses --recent parameter to prevent duplicate scanning
+        as recommended by backend team to resolve performance issues.
+        """
+        if self.mock_mode:
+            return self._mock_access_verification_operation(recent_days, progress_callback)
+        
+        # Use configured default if not specified
+        if recent_days is None:
+            recent_days = self.default_recent_days
+        
+        # Convert days to hours for CLI parameter (backend expects hours)
+        recent_hours = recent_days * 24
+        
+        cmd = [
+            str(self.cli_script),
+            "access",
+            "--recent", str(recent_hours),
+            "--verbose"
+        ]
+        
+        return self._execute_with_progress(cmd, progress_callback)
+    
+    def run_access_on_servers(self, ip_list: List[str], 
+                             progress_callback: Optional[Callable] = None) -> Dict:
+        """
+        Execute access verification on specific servers.
+        
+        Args:
+            ip_list: List of IP addresses to test
+            progress_callback: Function to call with progress updates
+            
+        Returns:
+            Dictionary with access verification results
+        """
+        if self.mock_mode:
+            return self._mock_access_on_servers_operation(ip_list, progress_callback)
+        
+        if not ip_list:
+            raise ValueError("Server list cannot be empty")
+        
+        servers_str = ",".join(ip_list)
+        cmd = [
+            str(self.cli_script),
+            "access",
+            "--servers", servers_str,
+            "--verbose"
+        ]
+        
+        return self._execute_with_progress(cmd, progress_callback)
+    
+    def should_skip_recent_scan(self, recent_days: Optional[int] = None) -> bool:
+        """
+        Check if recent scan makes new scan redundant.
+        
+        Args:
+            recent_days: Days to check for recent activity (None uses config default)
+            
+        Returns:
+            True if recent scan exists and new scan should be skipped
+            
+        Implementation: Checks database for recent scan activity to avoid
+        unnecessary duplicate scanning as recommended by backend team.
+        """
+        if recent_days is None:
+            recent_days = self.default_recent_days
+            
+        try:
+            # Query database for recent scan activity
+            recent_hours = recent_days * 24
+            cmd = [
+                str(self.cli_script),
+                "db", "query",
+                "--recent", str(recent_hours),
+                "--count-only"
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                cwd=self.backend_path,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                # Parse count from output
+                output = result.stdout.strip()
+                try:
+                    count = int(output)
+                    return count > 0  # Skip if we have recent results
+                except ValueError:
+                    return False
+            else:
+                return False  # Error - don't skip, let scan proceed
+                
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+            return False  # Error - don't skip, let scan proceed
     
     def get_database_summary(self) -> Dict:
         """
@@ -508,7 +754,17 @@ class BackendInterface:
             if returncode != 0:
                 # Extract meaningful error message from output
                 error_details = self._extract_error_details(full_output, cmd)
-                raise subprocess.CalledProcessError(returncode, cmd, error_details)
+                
+                # Handle specific error cases with automatic recovery
+                if error_details.startswith("RECENT_HOSTS_ERROR:"):
+                    # No recent hosts found - attempt automatic discovery as fallback
+                    return self._handle_no_recent_hosts_error(cmd, error_details, progress_callback)
+                elif error_details.startswith("SERVERS_NOT_AUTHENTICATED:"):
+                    # Specified servers not authenticated - suggest discovery
+                    return self._handle_servers_not_authenticated_error(cmd, error_details)
+                else:
+                    # Regular error - no automatic recovery
+                    raise subprocess.CalledProcessError(returncode, cmd, error_details)
             
             return results
             
@@ -516,6 +772,83 @@ class BackendInterface:
             self.current_operation["status"] = "failed"
             self.current_operation["error"] = str(e)
             raise
+    
+    def _handle_no_recent_hosts_error(self, original_cmd: List[str], error_details: str, 
+                                     progress_callback: Optional[Callable]) -> Dict:
+        """
+        Handle 'no recent hosts found' error with automatic discovery fallback.
+        
+        Args:
+            original_cmd: The original command that failed
+            error_details: Error details from CLI output
+            progress_callback: Progress callback for discovery operation
+            
+        Returns:
+            Dictionary with discovery results or error information
+        """
+        try:
+            if progress_callback:
+                progress_callback(0, "No recent hosts found - running discovery first...")
+            
+            # Extract countries from original command if available
+            countries = []
+            if "--country" in original_cmd:
+                country_index = original_cmd.index("--country")
+                if country_index + 1 < len(original_cmd):
+                    countries_str = original_cmd[country_index + 1]
+                    countries = countries_str.split(",")
+            
+            # If no countries found, default to US
+            if not countries:
+                countries = ["US"]
+            
+            # Run discovery operation
+            discovery_result = self.run_discover(countries, progress_callback)
+            
+            # Return discovery result with indication of fallback
+            discovery_result["fallback_reason"] = "no_recent_hosts"
+            discovery_result["original_error"] = error_details
+            discovery_result["automatic_discovery"] = True
+            
+            return discovery_result
+            
+        except Exception as e:
+            # Discovery also failed - return combined error information
+            return {
+                "success": False,
+                "error": f"Automatic discovery fallback failed: {str(e)}",
+                "original_error": error_details,
+                "fallback_attempted": True
+            }
+    
+    def _handle_servers_not_authenticated_error(self, original_cmd: List[str], error_details: str) -> Dict:
+        """
+        Handle 'servers not authenticated' error.
+        
+        Args:
+            original_cmd: The original command that failed
+            error_details: Error details from CLI output
+            
+        Returns:
+            Dictionary with error information and suggested recovery
+        """
+        # Extract server list from command if available
+        servers = []
+        if "--servers" in original_cmd:
+            server_index = original_cmd.index("--servers")
+            if server_index + 1 < len(original_cmd):
+                servers_str = original_cmd[server_index + 1]
+                servers = servers_str.split(",")
+        
+        return {
+            "success": False,
+            "error": "Specified servers are not authenticated",
+            "error_type": "servers_not_authenticated",
+            "affected_servers": servers,
+            "suggestion": "Run discovery on these servers first to establish authentication",
+            "original_error": error_details,
+            "recovery_action": "discovery_needed"
+        }
     
     def _parse_output_stream(self, stdout, output_lines: List[str], progress_callback: Optional[Callable]) -> None:
         """
@@ -533,8 +866,9 @@ class BackendInterface:
         self.last_known_phase = None
         # Enhanced progress patterns matching real backend output format
         # Formats: "\033[96mℹ 📊 Progress: 45/120 (37.5%)\033[0m" OR "📊 Progress: 25/100 (25.0%) | Success: 5, Failed: 20"
+        # Also handles recent filtering: "Testing recent hosts: 25/100 (25.0%)"
         # Made info symbol optional to capture authentication testing progress
-        progress_pattern = re.compile(r'(?:\033\[\d+m)?(?:ℹ\s*)?📊 Progress: (\d+)/(\d+) \((\d+(?:\.\d+)?)\%\)(?:\s*\|.*?)?(?:\033\[\d+m)?')
+        progress_pattern = re.compile(r'(?:\033\[\d+m)?(?:ℹ\s*)?(?:📊\s*Progress:|Testing\s+recent\s+hosts?:)\s*(\d+)/(\d+)\s*\((\d+(?:\.\d+)?)\%\)(?:\s*\|.*?)?(?:\033\[\d+m)?')
         
         # Workflow step detection for phase transitions
         # Format: "\033[94m[1/4] Discovery & Authentication\033[0m"
@@ -546,6 +880,10 @@ class BackendInterface:
         # Early-stage patterns for immediate feedback
         shodan_pattern = re.compile(r'(?:Shodan|Query|Discovery|API).*?(\d+).*?(?:results?|found|hosts?|entries)', re.IGNORECASE)
         database_pattern = re.compile(r'(?:Database|DB).*?(\d+).*?(?:servers?|hosts?|known)', re.IGNORECASE)
+        
+        # Recent filtering specific patterns (as per backend team recommendations)
+        recent_filtering_pattern = re.compile(r'(?:Loading|Found|Testing).*?(?:from\s+last|within\s+last|recent).*?(\d+).*?(?:days?|hours?).*?(\d+)?.*?(?:hosts?|servers?)', re.IGNORECASE)
+        skipped_hosts_pattern = re.compile(r'(?:Skipped|Skipping).*?(\d+).*?(?:hosts?|servers?).*?(?:recent|within|last)', re.IGNORECASE)
         
         # Authentication testing detection (for phase transition)
         auth_testing_start_pattern = re.compile(r'Testing SMB authentication on (\d+) hosts', re.IGNORECASE)
@@ -608,9 +946,17 @@ class BackendInterface:
                 auth_match = auth_success_pattern.search(line)
                 if auth_match:
                     success, failed = auth_match.groups()
-                    message = f"Testing hosts: {current}/{total} (Success: {success}, Failed: {failed})"
+                    # Check if this is recent filtering context
+                    if "recent" in line.lower() or "Testing recent hosts:" in line:
+                        message = f"Testing recent hosts: {current}/{total} (Success: {success}, Failed: {failed})"
+                    else:
+                        message = f"Testing hosts: {current}/{total} (Success: {success}, Failed: {failed})"
                 else:
-                    message = f"Processing {current}/{total} hosts"
+                    # Check if this is recent filtering progress
+                    if "Testing recent hosts:" in line or "recent hosts:" in line.lower():
+                        message = f"Testing recent hosts: {current}/{total}"
+                    else:
+                        message = f"Processing {current}/{total} hosts"
                 
                 # Validate host count parsing
                 try:
@@ -644,6 +990,29 @@ class BackendInterface:
             if auth_start_match:
                 count = auth_start_match.group(1)
                 progress_callback(15.0, f"Starting authentication tests on {count} hosts...")
+                continue
+            
+            # Parse recent filtering activity
+            recent_filter_match = recent_filtering_pattern.search(line)
+            if recent_filter_match:
+                # Extract numbers - first is timeframe, second (if present) is host count
+                numbers = recent_filter_match.groups()
+                timeframe = numbers[0]
+                host_count = numbers[1] if len(numbers) > 1 and numbers[1] else "some"
+                
+                if "loading" in line.lower():
+                    progress_callback(8.0, f"Loading hosts from last {timeframe} days...")
+                elif "found" in line.lower():
+                    progress_callback(12.0, f"Found {host_count} hosts within recent timeframe")
+                elif "testing" in line.lower():
+                    progress_callback(20.0, f"Testing {host_count} recent hosts...")
+                continue
+            
+            # Parse skipped hosts due to recent filtering
+            skipped_match = skipped_hosts_pattern.search(line)
+            if skipped_match:
+                count = skipped_match.group(1)
+                progress_callback(5.0, f"Skipped {count} hosts (scanned within recent timeframe)")
                 continue
             
             # Parse individual host testing for granular progress (e.g., "[5/100] Testing 192.168.1.5...")
@@ -1162,6 +1531,50 @@ class BackendInterface:
     def _mock_discover_operation(self, countries: List[str], progress_callback: Optional[Callable]) -> Dict:
         """Mock discovery-only operation."""
         return self._mock_scan_operation(countries, progress_callback)
+    
+    def _mock_access_verification_operation(self, recent_days: Optional[int], progress_callback: Optional[Callable]) -> Dict:
+        """Mock access verification operation."""
+        if progress_callback:
+            # Simulate recent filtering progress
+            stages = [
+                (10, f"Loading hosts from last {recent_days or 90} days"),
+                (25, "Found 45 hosts within recent timeframe"),
+                (40, "Testing SMB access on 45 recent hosts"),
+                (70, "Progress: 32/45 (71.1%) | Success: 12, Failed: 20"),
+                (90, "Progress: 43/45 (95.6%) | Success: 18, Failed: 25"),
+                (100, "Access verification completed")
+            ]
+            
+            for percentage, message in stages:
+                time.sleep(0.3)  # Simulate work
+                progress_callback(percentage, message)
+        
+        return {
+            "success": True,
+            "recent_days_filter": recent_days or 90,
+            "hosts_tested": 45,
+            "successful_auth": 18,
+            "failed_auth": 27,
+            "skipped_hosts": 75  # Hosts skipped due to recent filtering
+        }
+    
+    def _mock_access_on_servers_operation(self, ip_list: List[str], progress_callback: Optional[Callable]) -> Dict:
+        """Mock access verification on specific servers."""
+        if progress_callback:
+            # Simulate targeted server testing
+            total_servers = len(ip_list)
+            for i, ip in enumerate(ip_list):
+                percentage = ((i + 1) / total_servers) * 100
+                progress_callback(percentage, f"Testing {ip}...")
+                time.sleep(0.2)
+        
+        return {
+            "success": True,
+            "servers_specified": ip_list,
+            "hosts_tested": len(ip_list),
+            "successful_auth": len(ip_list) // 3,  # Mock some successes
+            "failed_auth": len(ip_list) - (len(ip_list) // 3)
+        }
     
     def get_operation_status(self) -> Optional[Dict]:
         """
