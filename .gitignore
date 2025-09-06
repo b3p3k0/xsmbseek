@@ -67,13 +67,9 @@ Thumbs.db
 *.bak
 .cache/
 
-# Test files - EXCEPT quality assurance tools
+# Test files
 test_*.py
 *_test.py
-# Quality assurance exceptions (keep these):
-!test_attribute_fixes.py
-!comprehensive_gui_audit.py  
-!validate_gui_safety.py
 
 # Development and implementation documentation
 *_IMPLEMENTATION.md
@@ -88,3 +84,43 @@ smbseek/
 
 # 
 xsmbseek-config.json
+docs/FRONTEND_INTEGRATION_RECOMMENDATIONS.md
+gui/.scan_lock
+smbseek.db
+.gitignore
+
+# Hardened ignores (appended per repo maintenance)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Databases / artifacts
+*.db
+*.sqlite*
+backups/
+exports/
+reports/
+test_data/
+
+# Tests & caches
+.pytest_cache/
+.coverage
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Build / dist
+build/
+dist/
+
+# Local configs
+*.local.json
