@@ -9,14 +9,48 @@
     "window_geometry": "800x700",
     "interface_mode": "simple",
     "last_used_config": null,
-    "operation_timeout_seconds": 3600,
+    "operation_timeout_seconds": null,
     "enable_debug_timeouts": false,
-    "comment": "GUI preferences - theme, window size, interface complexity, timeout settings. Timeout can be overridden by SMBSEEK_GUI_TIMEOUT env var"
+    "smb1_discovery_enabled": false,
+    "show_protocol_warnings": true,
+    "comment": "GUI preferences - theme, window size, interface complexity. SMB1 discovery is disabled by default for security. No timeout is applied to SMBSeek operations as they are expected to run for several hours"
+  },
+  "security": {
+    "limits": {
+      "timeout_per_stage_seconds": 3,
+      "timeout_per_host_seconds": 30,
+      "max_pdu_bytes": 65536,
+      "max_stdout_bytes": 10000,
+      "max_shares": 256,
+      "max_share_name_len": 80,
+      "signing_required": true,
+      "resolve_netbios": false
+    },
+    "smb1_policy": {
+      "allow_discovery": true,
+      "require_explicit_consent": true,
+      "anonymous_only": true,
+      "one_time_use": true,
+      "auto_disable_after_scan": true
+    },
+    "export_security": {
+      "sanitize_csv_formulas": true,
+      "strip_control_characters": true,
+      "max_export_records": 100000
+    },
+    "comment": "Security configuration for SMBSeek GUI operations. SMB limits apply to backend operations. SMB1 policy enforces audit security requirements."
   },
   "app": {
     "version": "1.0.0",
     "first_run": true,
     "github_repo": "https://github.com/b3p3k0/smbseek",
-    "comment": "Application metadata and first-run flag"
+    "security_compliance": {
+      "audit_version": "2024.1",
+      "smb1_controls_implemented": true,
+      "csv_injection_protection": true,
+      "protocol_indicators": true,
+      "safe_by_default": true
+    },
+    "comment": "Application metadata, first-run flag, and security compliance indicators"
   }
 }

@@ -13,38 +13,40 @@ from tkinter import ttk, messagebox
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 # Add utils to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
 
 from style import get_theme
+from smb1_warning_dialog import show_smb1_warning_dialog
 
 
 class ScanDialog:
     """
-    Modal dialog for configuring and starting SMB scans.
+    Modal dialog for configuring and starting SMB scans with security controls.
     
-    Provides interface for:
-    - Optional country selection (global scan if empty)
-    - Configuration file path display and editing
-    - Scan initiation with validation
+    Implements audit security requirements:
+    - SMB1 toggle with explicit warning and consent
+    - Credential controls (disabled for SMB1 mode)
+    - Security policy banner showing current mode
+    - Safe-by-default SMB2/3 scanning
     
-    Design Pattern: Simple modal with clear call-to-action flow
-    that integrates with existing configuration and scan systems.
+    Design Pattern: Enhanced security-focused modal with comprehensive
+    controls for both safe default and legacy discovery modes.
     """
     
     def __init__(self, parent: tk.Widget, config_path: str, 
                  config_editor_callback: Callable[[str], None],
-                 scan_start_callback: Callable[[Optional[str]], None]):
+                 scan_start_callback: Callable[[Dict[str, Any]], None]):
         """
-        Initialize scan dialog.
+        Initialize enhanced scan dialog with security controls.
         
         Args:
             parent: Parent widget
             config_path: Path to configuration file
             config_editor_callback: Function to open config editor
-            scan_start_callback: Function to start scan with country parameter
+            scan_start_callback: Function to start scan with parameters dict
         """
         self.parent = parent
         self.config_path = Path(config_path).resolve()
@@ -54,21 +56,37 @@ class ScanDialog:
         
         # Dialog result
         self.result = None
-        self.country_code = None
+        self.scan_params = None
+        
+        # Security state
+        self.smb1_enabled = False
+        self.smb1_consent_given = False
         
         # UI components
         self.dialog = None
         self.country_var = tk.StringVar()
         self.country_entry = None
         
+        # Security control variables
+        self.smb1_var = tk.BooleanVar()
+        self.username_var = tk.StringVar()
+        self.password_var = tk.StringVar()
+        
+        # Security control widgets
+        self.smb1_checkbox = None
+        self.username_entry = None
+        self.password_entry = None
+        self.policy_banner = None
+        self.credential_frame = None
+        
         self._create_dialog()
     
     def _create_dialog(self) -> None:
-        """Create the scan configuration dialog."""
+        """Create the enhanced scan configuration dialog with security controls."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("500x460")
-        self.dialog.minsize(400, 250)
+        self.dialog.geometry("600x700")
+        self.dialog.minsize(500, 600)
         
         # Apply theme
         self.theme.apply_to_widget(self.dialog, "main_window")
@@ -82,12 +100,18 @@ class ScanDialog:
         
         # Build UI
         self._create_header()
+        self._create_security_policy_banner()
         self._create_scan_options()
+        self._create_security_options()
+        self._create_credential_controls()
         self._create_config_section()
         self._create_button_panel()
         
         # Setup event handlers
         self._setup_event_handlers()
+        
+        # Initialize security state
+        self._update_security_controls()
         
         # Focus on country field
         self._focus_country_field()
@@ -132,6 +156,24 @@ class ScanDialog:
             fg=self.theme.colors["text_secondary"]
         )
         desc_label.pack(anchor="w", pady=(5, 0))
+    
+    def _create_security_policy_banner(self) -> None:
+        """Create security policy banner showing current scan mode."""
+        banner_frame = tk.Frame(self.dialog)
+        banner_frame.configure(bg='#e8f5e8', relief='solid', borderwidth=1)  # Light green for safe mode
+        banner_frame.pack(fill=tk.X, padx=20, pady=(0, 5))
+        
+        # Policy banner label
+        self.policy_banner = tk.Label(
+            banner_frame,
+            text="🔒 Security Policy: SMB2/SMB3 only • Signing required • Safe by default",
+            font=self.theme.fonts["body"],
+            fg='#155724',  # Dark green text
+            bg='#e8f5e8',
+            padx=10,
+            pady=8
+        )
+        self.policy_banner.pack(fill=tk.X)
     
     def _create_scan_options(self) -> None:
         """Create scan configuration options."""
@@ -180,6 +222,99 @@ class ScanDialog:
             fg=self.theme.colors["text_secondary"]
         )
         example_label.pack(side=tk.LEFT)
+    
+    def _create_security_options(self) -> None:
+        """Create security options including SMB1 toggle."""
+        security_frame = tk.Frame(self.dialog)
+        self.theme.apply_to_widget(security_frame, "card")
+        security_frame.pack(fill=tk.X, padx=20, pady=5)
+        
+        # Section title
+        section_title = self.theme.create_styled_label(
+            security_frame,
+            "Security Options",
+            "heading"
+        )
+        section_title.pack(anchor="w", padx=15, pady=(10, 5))
+        
+        # SMB1 toggle with warning
+        smb1_container = tk.Frame(security_frame)
+        self.theme.apply_to_widget(smb1_container, "card")
+        smb1_container.pack(fill=tk.X, padx=15, pady=(0, 10))
+        
+        self.smb1_checkbox = tk.Checkbutton(
+            smb1_container,
+            variable=self.smb1_var,
+            text="⚠️ Enable SMB1 discovery (one run only)",
+            font=self.theme.fonts["body"],
+            command=self._on_smb1_toggle
+        )
+        self.smb1_checkbox.pack(anchor="w")
+        
+        # Warning text for SMB1
+        warning_label = self.theme.create_styled_label(
+            smb1_container,
+            "SMB1 is a legacy protocol with security risks. Use only when required for legacy systems.",
+            "small",
+            fg='#dc3545',  # Red warning text
+            wraplength=500
+        )
+        warning_label.pack(anchor="w", padx=20, pady=(2, 0))
+    
+    def _create_credential_controls(self) -> None:
+        """Create credential input controls."""
+        self.credential_frame = tk.Frame(self.dialog)
+        self.theme.apply_to_widget(self.credential_frame, "card")
+        self.credential_frame.pack(fill=tk.X, padx=20, pady=5)
+        
+        # Section title
+        cred_title = self.theme.create_styled_label(
+            self.credential_frame,
+            "Authentication (Optional)",
+            "heading"
+        )
+        cred_title.pack(anchor="w", padx=15, pady=(10, 5))
+        
+        # Username input
+        username_container = tk.Frame(self.credential_frame)
+        self.theme.apply_to_widget(username_container, "card")
+        username_container.pack(fill=tk.X, padx=15, pady=(0, 5))
+        
+        username_label = self.theme.create_styled_label(
+            username_container,
+            "Username (leave blank for anonymous):",
+            "body"
+        )
+        username_label.pack(anchor="w")
+        
+        self.username_entry = tk.Entry(
+            username_container,
+            textvariable=self.username_var,
+            width=30,
+            font=self.theme.fonts["body"]
+        )
+        self.username_entry.pack(anchor="w", pady=(3, 0))
+        
+        # Password input
+        password_container = tk.Frame(self.credential_frame)
+        self.theme.apply_to_widget(password_container, "card")
+        password_container.pack(fill=tk.X, padx=15, pady=(0, 10))
+        
+        password_label = self.theme.create_styled_label(
+            password_container,
+            "Password:",
+            "body"
+        )
+        password_label.pack(anchor="w")
+        
+        self.password_entry = tk.Entry(
+            password_container,
+            textvariable=self.password_var,
+            width=30,
+            show="*",
+            font=self.theme.fonts["body"]
+        )
+        self.password_entry.pack(anchor="w", pady=(3, 0))
     
     def _create_config_section(self) -> None:
         """Create configuration file section."""
@@ -257,6 +392,9 @@ class ScanDialog:
         
         # Country input validation
         self.country_var.trace_add("write", self._validate_country_input)
+        
+        # SMB1 toggle handler
+        self.smb1_var.trace_add("write", self._on_smb1_var_changed)
     
     def _focus_country_field(self) -> None:
         """Set focus to country input field."""
@@ -310,6 +448,77 @@ class ScanDialog:
         if upper_input != country_input:
             self.country_var.set(upper_input)
     
+    def _on_smb1_var_changed(self, *args) -> None:
+        """Handle SMB1 variable changes (for programmatic updates)."""
+        self._update_security_controls()
+    
+    def _on_smb1_toggle(self) -> None:
+        """Handle SMB1 checkbox toggle with consent validation."""
+        if self.smb1_var.get():
+            # User wants to enable SMB1 - show warning and get consent
+            consent_given = show_smb1_warning_dialog(self.dialog)
+            
+            if consent_given:
+                # User gave explicit consent
+                self.smb1_enabled = True
+                self.smb1_consent_given = True
+                self._update_security_controls()
+            else:
+                # User declined - revert checkbox
+                self.smb1_var.set(False)
+                self.smb1_enabled = False
+                self.smb1_consent_given = False
+                self._update_security_controls()
+        else:
+            # User disabled SMB1 - return to safe defaults
+            self.smb1_enabled = False
+            self.smb1_consent_given = False
+            self._update_security_controls()
+    
+    def _update_security_controls(self) -> None:
+        """Update security controls based on SMB1 state."""
+        if self.smb1_enabled:
+            # SMB1 mode - anonymous only, update policy banner
+            self.policy_banner.config(
+                text="⚠️ Security Policy: SMB1 (NT1) • Anonymous-only • Discovery-only • Strict limits",
+                bg='#fff3cd',  # Warning yellow background
+                fg='#856404'   # Dark yellow text
+            )
+            self.policy_banner.master.config(bg='#fff3cd')
+            
+            # Disable and clear credential inputs
+            self.username_entry.config(state=tk.DISABLED)
+            self.password_entry.config(state=tk.DISABLED)
+            self.username_var.set("")
+            self.password_var.set("")
+            
+            # Add tooltip/explanation
+            if hasattr(self, 'credential_frame'):
+                # Update section title to show SMB1 restrictions
+                for widget in self.credential_frame.winfo_children():
+                    if isinstance(widget, tk.Label) and "Authentication" in widget.cget("text"):
+                        widget.config(text="Authentication (Disabled for SMB1)", fg='#dc3545')
+                        break
+        else:
+            # Normal mode - SMB2/3 with optional authentication
+            self.policy_banner.config(
+                text="🔒 Security Policy: SMB2/SMB3 only • Signing required • Safe by default",
+                bg='#e8f5e8',  # Light green background
+                fg='#155724'   # Dark green text
+            )
+            self.policy_banner.master.config(bg='#e8f5e8')
+            
+            # Enable credential inputs
+            self.username_entry.config(state=tk.NORMAL)
+            self.password_entry.config(state=tk.NORMAL)
+            
+            # Reset section title
+            if hasattr(self, 'credential_frame'):
+                for widget in self.credential_frame.winfo_children():
+                    if isinstance(widget, tk.Label) and "Authentication" in widget.cget("text"):
+                        widget.config(text="Authentication (Optional)", fg=self.theme.colors["text_primary"])
+                        break
+    
     def _open_config_editor(self) -> None:
         """Open configuration editor."""
         try:
@@ -336,31 +545,63 @@ class ScanDialog:
             self.country_entry.focus_set()
             return
         
-        # Prepare country parameter for backend (comma-separated string or None)
+        # Check SMB1 consent if SMB1 is enabled
+        if self.smb1_enabled and not self.smb1_consent_given:
+            messagebox.showerror(
+                "SMB1 Consent Required",
+                "SMB1 mode requires explicit consent. Please toggle SMB1 option to provide consent."
+            )
+            return
+        
+        # Prepare scan parameters
+        scan_params = {
+            'countries': countries if countries else None,
+            'smb1_enabled': self.smb1_enabled,
+            'username': self.username_var.get().strip() if not self.smb1_enabled else None,
+            'password': self.password_var.get().strip() if not self.smb1_enabled else None
+        }
+        
+        # Prepare description for user confirmation
         if countries:
-            country_param = ",".join(countries)
             if len(countries) == 1:
                 scan_desc = f"country: {countries[0]}"
             else:
                 scan_desc = f"countries: {', '.join(countries)}"
         else:
-            country_param = None
             scan_desc = "global (all countries)"
+        
+        # Add protocol information to description
+        if self.smb1_enabled:
+            protocol_desc = "SMB1 (Legacy Discovery Mode)"
+            auth_desc = "anonymous authentication only"
+        else:
+            protocol_desc = "SMB2/SMB3 (Safe Mode)"
+            if scan_params['username']:
+                auth_desc = f"authenticated as '{scan_params['username']}'"
+            else:
+                auth_desc = "anonymous authentication"
             
-        result = messagebox.askyesno(
-            "Start Scan",
+        # Show comprehensive confirmation dialog
+        confirmation_msg = (
             f"Start SMB security scan for {scan_desc}?\n\n"
+            f"Protocol: {protocol_desc}\n"
+            f"Authentication: {auth_desc}\n\n"
             "This will discover SMB servers and test for accessible shares."
         )
+        
+        if self.smb1_enabled:
+            confirmation_msg += "\n\n⚠️ SMB1 mode will be automatically disabled after this scan."
+        
+        result = messagebox.askyesno("Start Scan", confirmation_msg)
         
         if result:
             try:
                 # Set results and close dialog
                 self.result = "start"
-                self.country_code = country_param
+                self.scan_params = scan_params
                 
                 # Start the scan
-                self.scan_start_callback(self.country_code)
+                self.scan_start_callback(scan_params)
                 
                 # Close dialog
                 self.dialog.destroy()
@@ -392,15 +633,15 @@ class ScanDialog:
 
 def show_scan_dialog(parent: tk.Widget, config_path: str,
                     config_editor_callback: Callable[[str], None],
-                    scan_start_callback: Callable[[Optional[str]], None]) -> Optional[str]:
+                    scan_start_callback: Callable[[Dict[str, Any]], None]) -> Optional[str]:
     """
-    Show scan configuration dialog.
+    Show enhanced scan configuration dialog with security controls.
     
     Args:
         parent: Parent widget
         config_path: Path to configuration file
         config_editor_callback: Function to open config editor
-        scan_start_callback: Function to start scan with country parameter
+        scan_start_callback: Function to start scan with parameters dict
         
     Returns:
         Dialog result ("start", "cancel", or None)

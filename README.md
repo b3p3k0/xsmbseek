@@ -15,7 +15,7 @@ xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek 
 
 1. **Clone xsmbseek:**
    ```bash
-   git clone https://github.com/your-org/xsmbseek.git
+   git clone https://github.com/b3p3k0/xsmbseek.git
    cd xsmbseek
    ```
 

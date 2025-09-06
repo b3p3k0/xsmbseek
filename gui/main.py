@@ -145,18 +145,22 @@ class SMBSeekGUI:
         try:
             # Get database path from settings (last used or default)
             db_path = self.settings_manager.get_database_path()
+            print(f"[DEBUG] Settings manager returned database path: {db_path}")
             
             # Initialize backend interface first
             self.backend_interface = BackendInterface(self._get_backend_path())
             
             # Handle database setup
             validated_db_path = self._ensure_database_available(db_path)
+            print(f"[DEBUG] Validated database path: {validated_db_path}")
             if not validated_db_path:
                 # User chose to exit during database setup
                 sys.exit(0)
             
             # Initialize database reader with validated path
+            print(f"[DEBUG] Initializing DatabaseReader with path: {validated_db_path}")
             self.db_reader = DatabaseReader(validated_db_path)
+            print(f"[DEBUG] DatabaseReader initialized, actual db_path: {self.db_reader.db_path}")
             
             # Update settings with successful database path
             self.settings_manager.set_database_path(validated_db_path, validate=True)

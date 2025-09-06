@@ -198,7 +198,7 @@ class DashboardWidget:
         # Help button
         help_button = tk.Button(
             actions_frame,
-            text="ℹ️ Help",
+            text="❓ Help",
             command=self._show_help_dialog
         )
         self.theme.apply_to_widget(help_button, "button_secondary")
@@ -342,11 +342,8 @@ class DashboardWidget:
         )
         value_label.pack(pady=(12, 12))
         
-        # Make entire card clickable instead of having a separate button
-        servers_frame.config(cursor="hand2")  # Show clickable cursor
-        servers_frame.bind("<Button-1>", lambda e: self._on_servers_card_click())
-        servers_frame.bind("<Enter>", lambda e: self._on_servers_card_hover_enter(servers_frame))
-        servers_frame.bind("<Leave>", lambda e: self._on_servers_card_hover_leave(servers_frame))
+        # Make entire card clickable - bind to all elements for full coverage
+        self._make_card_clickable(servers_frame, [title_frame, icon_label, title_label, value_label])
     
     def _build_recent_activity(self) -> None:
         """Build recent activity display for expanded horizontal layout with enhanced entry count."""
@@ -1292,6 +1289,28 @@ Documentation: https://github.com/b3p3k0/xsmbseek"""
             )
     
     # ===== CARD INTERACTION HANDLERS =====
+    
+    def _make_card_clickable(self, main_frame: tk.Widget, child_widgets: List[tk.Widget]) -> None:
+        """
+        Make entire card area clickable by binding events to main frame and all child widgets.
+        
+        Args:
+            main_frame: The main container frame for the card
+            child_widgets: List of child widgets that should also be clickable
+        """
+        # Bind events to main frame (primary binding)
+        main_frame.config(cursor="hand2")
+        main_frame.bind("<Button-1>", lambda e: self._on_servers_card_click())
+        main_frame.bind("<Enter>", lambda e: self._on_servers_card_hover_enter(main_frame))
+        main_frame.bind("<Leave>", lambda e: self._on_servers_card_hover_leave(main_frame))
+        
+        # Bind events to all child widgets for full coverage
+        for widget in child_widgets:
+            if widget and widget.winfo_exists():
+                widget.config(cursor="hand2")
+                widget.bind("<Button-1>", lambda e: self._on_servers_card_click())
+                widget.bind("<Enter>", lambda e: self._on_servers_card_hover_enter(main_frame))
+                widget.bind("<Leave>", lambda e: self._on_servers_card_hover_leave(main_frame))
     
     def _on_servers_card_click(self) -> None:
         """Handle click on Total Servers card to open server list."""

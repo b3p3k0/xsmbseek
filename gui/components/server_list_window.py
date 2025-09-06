@@ -28,12 +28,14 @@ try:
     from gui.utils.style import get_theme
     from gui.utils.data_export_engine import get_export_engine
     from gui.utils.scan_manager import get_scan_manager
+    from gui.utils.security_helpers import format_protocol_display, sanitize_log_output
 except ImportError:
     # Handle relative imports when running from gui directory
     from utils.database_access import DatabaseReader
     from utils.style import get_theme
     from utils.data_export_engine import get_export_engine
     from utils.scan_manager import get_scan_manager
+    from utils.security_helpers import format_protocol_display, sanitize_log_output
 
 
 class ServerListWindow:
@@ -81,7 +83,7 @@ class ServerListWindow:
         self.search_text = tk.StringVar()
         self.search_var = tk.StringVar()  # Additional search reference
         self.date_filter = tk.StringVar(value="All")
-        self.shares_filter = tk.StringVar(value="All")
+        self.shares_filter = tk.IntVar(value=1)  # Default to showing only servers with >0 shares (1=checked, 0=unchecked)
         
         # Filter UI components - simplified
         self.advanced_filters_frame = None
@@ -268,6 +270,7 @@ class ServerListWindow:
             variable=self.shares_filter,
             command=self._apply_filters
         )
+        # IntVar(value=1) automatically sets checkbox to checked state
         self.shares_filter_checkbox.pack()
         
         # Date filter
@@ -312,10 +315,11 @@ class ServerListWindow:
         self.theme.apply_to_widget(self.table_frame, "main_window")
         self.table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Define columns - updated for enhanced share tracking
+        # Define columns - enhanced with protocol security information
         columns = (
             "IP Address",
-            "Shares",
+            "Protocol",
+            "Shares", 
             "Accessible",
             "Last Seen",
             "Scan Count"
@@ -329,12 +333,13 @@ class ServerListWindow:
             selectmode="extended"
         )
         
-        # Configure columns - optimized dimensions for enhanced share tracking
+        # Configure columns - optimized dimensions with protocol security info
         self.tree.column("#0", width=0, stretch=False)  # Hide tree column
         self.tree.column("IP Address", width=160, anchor="w")
-        self.tree.column("Shares", width=100, anchor="center")
-        self.tree.column("Accessible", width=900, anchor="w")  # Extra wide for extensive share lists
-        self.tree.column("Last Seen", width=200, anchor="w")
+        self.tree.column("Protocol", width=120, anchor="center")  # SMB protocol version
+        self.tree.column("Shares", width=80, anchor="center")
+        self.tree.column("Accessible", width=800, anchor="w")  # Adjusted for protocol column
+        self.tree.column("Last Seen", width=180, anchor="w")
         self.tree.column("Scan Count", width=100, anchor="center", stretch=True)  # Flexible width
         
         # Configure headings
@@ -493,8 +498,38 @@ class ServerListWindow:
             # Apply initial filters and display data
             self._apply_filters()
             
-            # Update count display
-            self.count_label.configure(text=f"Total: {len(self.all_servers)} servers")
+            # Debug: Analyze server dates and shares
+            print(f"[DEBUG] Server list loaded {len(self.all_servers)} total servers")
+            
+            # Analyze by date
+            from collections import defaultdict
+            date_counts = defaultdict(int)
+            date_with_shares = defaultdict(int)
+            
+            for server in self.all_servers:
+                last_seen = server.get("last_seen", "")
+                if last_seen:
+                    date = last_seen[:10]  # Get just the date part
+                    date_counts[date] += 1
+                    if server.get("accessible_shares", 0) > 0:
+                        date_with_shares[date] += 1
+            
+            print("[DEBUG] Server counts by date:")
+            for date in sorted(date_counts.keys(), reverse=True)[:5]:  # Show last 5 dates
+                total = date_counts[date]
+                with_shares = date_with_shares[date]
+                print(f"  {date}: {total} servers total, {with_shares} with accessible shares")
+            
+            # Apply initial filters with default shares filter
+            self._apply_filters()
+            
+            # Update count display to reflect default filtering
+            if self.shares_filter.get():
+                accessible_count = len([s for s in self.all_servers if s.get("accessible_shares", 0) > 0])
+                hidden_count = len(self.all_servers) - accessible_count
+                self.count_label.configure(text=f"Default view: {accessible_count} servers with accessible shares (hiding {hidden_count} with no shares)")
+            else:
+                self.count_label.configure(text=f"Total: {len(self.all_servers)} servers")
             
         except Exception as e:
             messagebox.showerror(
@@ -529,8 +564,12 @@ class ServerListWindow:
             filtered = self._apply_date_filter(filtered, date_filter_value)
         
         # Apply accessible shares filter
-        if self.shares_filter.get():
+        shares_filter_active = self.shares_filter.get()
+        if shares_filter_active:
             filtered = [server for server in filtered if server.get("accessible_shares", 0) > 0]
+            print(f"[DEBUG] Shares filter ON: showing {len(filtered)} servers with accessible shares")
+        else:
+            print(f"[DEBUG] Shares filter OFF: showing all {len(filtered)} servers (including {len([s for s in filtered if s.get('last_seen', '').startswith('2025-09-05')])} from Sept 5th)")
 
         self.filtered_servers = filtered
         self._update_table_display()
@@ -596,8 +635,13 @@ class ServerListWindow:
         
         # Add filtered servers
         for server in self.filtered_servers:
-            # Format display values - updated for enhanced share tracking
+            # Format display values - enhanced with protocol security information
             ip_addr = server.get("ip_address", "")
+            
+            # Extract and format protocol information
+            protocol_raw = server.get("protocol", "") or server.get("smb_version", "") or "SMB2/3"
+            protocol_display = format_protocol_display(protocol_raw, show_warning=True)
+            
             shares_count = str(server.get("accessible_shares", 0))
             accessible_shares = server.get("accessible_shares_list", "")
             last_seen = server.get("last_seen", "Never")
@@ -616,24 +660,53 @@ class ServerListWindow:
                 # Remove any spaces after commas and ensure clean formatting
                 accessible_shares = ",".join([share.strip() for share in accessible_shares.split(",") if share.strip()])
             
-            # Insert row with new column structure
+            # Insert row with enhanced column structure including protocol
             item_id = self.tree.insert(
                 "",
                 "end",
-                values=(ip_addr, shares_count, accessible_shares, last_seen, scan_count)
+                values=(ip_addr, protocol_display, shares_count, accessible_shares, last_seen, scan_count)
             )
             
-            # Add visual indicators for shares count
+            # Apply security-aware visual indicators
+            if "SMB1" in protocol_display or "⚠️" in protocol_display:
+                # Legacy SMB1 server - apply warning styling
+                self.tree.set(item_id, "Protocol", f"⚠️ {protocol_display}")
+                # Optional: Apply different row color for SMB1 servers
+                # self.tree.item(item_id, tags=("smb1_legacy",))
+            
+            # Add visual indicators for shares count with security context
             share_count = server.get("accessible_shares", 0)
             if share_count > 0:
-                self.tree.set(item_id, "Shares", f"📁 {shares_count}")
+                # Use different icon for SMB1 vs safe protocols
+                if "SMB1" in protocol_display:
+                    self.tree.set(item_id, "Shares", f"⚠️📁 {shares_count}")
+                else:
+                    self.tree.set(item_id, "Shares", f"📁 {shares_count}")
             else:
                 self.tree.set(item_id, "Shares", shares_count)
         
-        # Update status
-        self.count_label.configure(
-            text=f"Showing: {len(self.filtered_servers)} of {len(self.all_servers)} servers"
-        )
+        # Update status based on current filtering
+        if self.shares_filter.get() and not any([self.search_text.get(), self.date_filter.get() != "All"]):
+            # Default view with only shares filter - show most recent date with shares
+            hidden_count = len(self.all_servers) - len(self.filtered_servers)
+            
+            # Find most recent server with shares
+            most_recent_with_shares = None
+            if self.filtered_servers:
+                most_recent = max(self.filtered_servers, key=lambda x: x.get("last_seen", ""))
+                most_recent_date = most_recent.get("last_seen", "")[:10] if most_recent.get("last_seen") else "Unknown"
+                most_recent_with_shares = most_recent_date
+            
+            status_text = f"Default view: {len(self.filtered_servers)} servers with accessible shares (hiding {hidden_count} with no shares)"
+            if most_recent_with_shares:
+                status_text += f" | Most recent: {most_recent_with_shares}"
+            
+            self.count_label.configure(text=status_text)
+        else:
+            # Custom filtering applied
+            self.count_label.configure(
+                text=f"Showing: {len(self.filtered_servers)} of {len(self.all_servers)} servers"
+            )
     
     def _sort_by_column(self, column: str) -> None:
         """Sort table by specified column."""
@@ -647,12 +720,23 @@ class ServerListWindow:
             col_index = self.tree["columns"].index(column)
             sort_key = values[col_index]
             
-            # Convert to appropriate type for sorting - updated for new columns
+            # Convert to appropriate type for sorting - enhanced with protocol security info
             if column in ["Shares", "Scan Count"]:
-                # Extract number from string (remove emojis)
+                # Extract number from string (remove emojis and warning symbols)
                 import re
                 numbers = re.findall(r'\d+', str(sort_key))
                 sort_key = int(numbers[0]) if numbers else 0
+            elif column == "Protocol":
+                # Sort by protocol security priority: SMB3 > SMB2 > SMB1
+                protocol_str = str(sort_key).upper()
+                if "SMB3" in protocol_str:
+                    sort_key = 3  # Highest priority (most secure)
+                elif "SMB2" in protocol_str:
+                    sort_key = 2
+                elif "SMB1" in protocol_str or "NT1" in protocol_str:
+                    sort_key = 1  # Lowest priority (least secure)
+                else:
+                    sort_key = 2  # Default to SMB2 priority
             elif column == "Last Seen":
                 # Sort by date
                 try:
@@ -864,11 +948,20 @@ class ServerListWindow:
             )
     
     def _format_server_details(self, server: Dict[str, Any]) -> str:
-        """Format server details for display with accessible shares list."""
+        """Format server details for display with enhanced security information."""
         # Extract share information
         accessible_list = server.get('accessible_shares_list', '')
         accessible_count = server.get('accessible_shares', 0)
         total_shares = server.get('total_shares', accessible_count)
+        
+        # Extract and format protocol information
+        protocol_raw = server.get('protocol', '') or server.get('smb_version', '') or 'SMB2/3'
+        protocol_display = format_protocol_display(protocol_raw, show_warning=False)
+        
+        # Determine security risk level
+        is_legacy = 'SMB1' in protocol_display.upper() or 'NT1' in protocol_display.upper()
+        security_emoji = '⚠️' if is_legacy else '🔒'
+        security_level = 'Legacy (High Risk)' if is_legacy else 'Modern (Standard Risk)'
         
         # Format accessible shares list
         if accessible_list and accessible_list.strip():
@@ -887,6 +980,11 @@ class ServerListWindow:
    Country: {server.get('country', 'Unknown')} ({server.get('country_code', 'Unknown')})
    Authentication: {server.get('auth_method', 'Unknown')}
    
+{security_emoji} Protocol & Security:
+   SMB Protocol: {protocol_display}
+   Security Level: {security_level}
+   Protocol Notes: {'Uses legacy SMB1 - upgrade recommended for security' if is_legacy else 'Modern SMB protocol with enhanced security features'}
+   
 📊 Scan Information:
    First Seen: {server.get('first_seen', 'Unknown')}
    Last Seen: {server.get('last_seen', 'Unknown')}
@@ -902,10 +1000,10 @@ class ServerListWindow:
    
 🔒 Security Assessment:
    Vulnerabilities: {server.get('vulnerabilities', 0)}
+   Risk Factors: {'SMB1 protocol exposure, potential for exploitation' if is_legacy else 'Standard SMB security risks apply'}
    
-📝 Additional Notes:
-   This server was discovered through SMBSeek scanning and shows
-   the authentication method and share accessibility results.
+📝 Security Notes:
+   This server was discovered through SMBSeek scanning. {'⚠️ SMB1 servers should be upgraded to SMB2/3 for improved security.' if is_legacy else '✅ This server uses modern SMB protocols with better security.'}
    
    For detailed vulnerability information and remediation steps,
    use the Vulnerability Report window.
@@ -1120,7 +1218,8 @@ class ServerListWindow:
         """Reset all filters to default values - simplified for enhanced tracking."""
         self.search_text.set("")
         self.date_filter.set("All")
-        self.shares_filter.set("")
+        self.shares_filter.set(1)  # Reset to default: show servers with >0 shares (1=checked)
+        # Checkbox will automatically reflect the IntVar value
         self._apply_filters()
     
     def _refresh_data(self) -> None:

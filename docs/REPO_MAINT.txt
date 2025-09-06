@@ -1,0 +1,203 @@
+CLAUDE CODE INSTRUCTIONS — REPO PRUNE FOR “CLEAN INSTALL”
+Goal: Make a brand-new clone contain only what an end user needs to run the apps. Remove dev/test artifacts, sample DBs, heavy docs, and internal scripts. Add ignores to prevent reintroduction.
+
+SOURCES VERIFIED
+- smbseek repo file list shows: commands/, conf/, docs/, shared/, tools/, .gitignore, LICENSE, README.md, requirements.txt, smbseek.py, test_access_parsing.py, test_cli_flags.py. :contentReference[oaicite:0]{index=0}
+- xsmbseek repo file list shows: docs/, gui/, test_data/, .gitignore, multiple dev docs (*.md), comprehensive_gui_audit.py, setup_gui_dev_env.sh, smbseek.db, tests, xsmbseek (executable), xsmbseek-config.json.example. Tkinter listed as prerequisite. :contentReference[oaicite:1]{index=1}
+
+============================================================
+A) KEEP / REMOVE — DEFINITIVE LISTS
+============================================================
+
+A1) smbseek — KEEP (runtime essentials)
+- KEEP: smbseek.py, shared/, conf/, requirements.txt, README.md, LICENSE, .gitignore. (These are needed to run + configure.) :contentReference[oaicite:2]{index=2}
+- KEEP: conf/config.json.example (or equivalent), conf/exclusion_list.txt (if present).
+
+A2) smbseek — REMOVE from repo (not required for a clean install)
+- REMOVE: docs/ (move to Wiki or a /docs branch). :contentReference[oaicite:3]{index=3}
+- REMOVE: tools/ (legacy scripts; not required for first-run user). :contentReference[oaicite:4]{index=4}
+- REMOVE: test files at repo root: test_access_parsing.py, test_cli_flags.py. :contentReference[oaicite:5]{index=5}
+- REMOVE (if present): any generated DBs (*.db, *.sqlite*), exports/, backups/, reports/, .pytest_cache/, __pycache__/.
+- NOTE: commands/ appears to be part of the new CLI layout; DO NOT remove unless you explicitly retire subcommands. (Directory exists per listing.) :contentReference[oaicite:6]{index=6}
+
+A3) xsmbseek — KEEP (runtime essentials)
+- KEEP: xsmbseek (executable), gui/, xsmbseek-config.json.example, README.md, LICENSE, .gitignore. :contentReference[oaicite:7]{index=7}
+- Rationale: GUI + minimal docs. Tkinter is an external pre-req. :contentReference[oaicite:8]{index=8}
+
+A4) xsmbseek — REMOVE from repo (not required for a clean install)
+- REMOVE: smbseek.db (sample/working DB should never be versioned). :contentReference[oaicite:9]{index=9}
+- REMOVE: test_data/ (dev-only). :contentReference[oaicite:10]{index=10}
+- REMOVE: comprehensive_gui_audit.py, validate_gui_safety.py (internal audit/dev). :contentReference[oaicite:11]{index=11}
+- REMOVE: setup_gui_dev_env.sh (dev setup script; not needed by end users). :contentReference[oaicite:12]{index=12}
+- REMOVE: dev-facing design docs at repo root:
+  - CLAUDE_INTEGRATION_GUIDE.md
+  - CONFIGURATION_DIALOG_IMPLEMENTATION.md
+  - ENHANCED_SHARE_TRACKING_IMPLEMENTATION.md
+  - SERVER_DETAILS_ENHANCEMENT_SUMMARY.md
+  (Move to Wiki or /docs branch; avoid shipping to end users.) :contentReference[oaicite:13]{index=13}
+- REMOVE: tests at top level:
+  - test_attribute_fixes.py
+  - test_enhanced_share_tracking.py
+  (Keep tests in a dev branch if desired.) :contentReference[oaicite:14]{index=14}
+- REMOVE (if present): .pytest_cache/, __pycache__/, *.py[cod], .coverage, .vscode/, .idea/.
+
+============================================================
+B) .gitignore HARDENING (BOTH REPOS)
+============================================================
+Append to each repo’s .gitignore (idempotent):
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Databases / artifacts
+*.db
+*.sqlite*
+backups/
+exports/
+reports/
+
+# Tests & caches
+.pytest_cache/
+.coverage
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Build / dist (future-proof)
+build/
+dist/
+
+# Local configs (if you later add per-user variants)
+*.local.json
+
+============================================================
+C) GIT COMMANDS — CREATE CLEANUP BRANCH, REMOVE & COMMIT
+============================================================
+# From repo root (smbseek), create a cleanup branch
+git checkout -b chore/prune-repo
+
+# smbseek: remove non-essential end-user content
+git rm -r --cached docs || true
+git rm -r --cached tools || true
+git rm --cached test_access_parsing.py || true
+git rm --cached test_cli_flags.py || true
+
+# Ignore common junk (append; safe if duplicates)
+cat >> .gitignore <<'EOF'
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+*.db
+*.sqlite*
+backups/
+exports/
+reports/
+.pytest_cache/
+.coverage
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+build/
+dist/
+*.local.json
+EOF
+
+git add .gitignore
+git commit -m "chore: prune dev/test artifacts; harden .gitignore for clean installs"
+
+# Repeat for xsmbseek
+cd ../xsmbseek
+git checkout -b chore/prune-repo
+
+# Remove dev/test artifacts, sample DB, internal docs
+git rm -r --cached test_data || true
+git rm --cached smbseek.db || true
+git rm --cached comprehensive_gui_audit.py || true
+git rm --cached validate_gui_safety.py || true
+git rm --cached setup_gui_dev_env.sh || true
+git rm --cached CLAUDE_INTEGRATION_GUIDE.md || true
+git rm --cached CONFIGURATION_DIALOG_IMPLEMENTATION.md || true
+git rm --cached ENHANCED_SHARE_TRACKING_IMPLEMENTATION.md || true
+git rm --cached SERVER_DETAILS_ENHANCEMENT_SUMMARY.md || true
+git rm --cached test_attribute_fixes.py || true
+git rm --cached test_enhanced_share_tracking.py || true
+
+# Append hardened ignores
+cat >> .gitignore <<'EOF'
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+*.db
+*.sqlite*
+backups/
+exports/
+reports/
+.pytest_cache/
+.coverage
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+build/
+dist/
+*.local.json
+EOF
+
+git add .gitignore
+git commit -m "chore(gui): remove non-essential files and sample DB; harden .gitignore"
+
+# Push branches for review
+git push -u origin chore/prune-repo
+
+============================================================
+D) OPTIONAL (STRONGLY RECOMMENDED) — PURGE HISTORY BLOAT
+============================================================
+If large/binary files (e.g., smbseek.db) already exist in history, rewrite to remove them (saves clone size):
+
+# Install git-filter-repo (preferred over BFG)
+# https://github.com/newren/git-filter-repo
+# Example for xsmbseek (adjust paths accordingly)
+cd ../xsmbseek
+git filter-repo --path smbseek.db --invert-paths
+
+# Force-push only if you accept rewriting history
+git push --force origin main
+
+(Repeat for any other large binaries or directories you’ve removed.)
+
+============================================================
+E) FINAL REVIEW CHECKLIST
+============================================================
+[ ] Fresh clone runs “smbseek” with only: smbseek.py, shared/, conf/, requirements.txt, README.md, LICENSE, .gitignore. :contentReference[oaicite:15]{index=15}
+[ ] Fresh clone runs “xsmbseek” with only: xsmbseek, gui/, xsmbseek-config.json.example, README.md, LICENSE, .gitignore. :contentReference[oaicite:16]{index=16}
+[ ] No test_data, sample DBs, dev scripts, or internal design docs present.
+[ ] .gitignore prevents reintroduction of DBs, caches, editors, and build outputs.
+[ ] (Optional) Docs migrated to Wiki or a docs-only branch to keep main clean.
+
+Notes:
+- Leave smbseek/commands/ intact unless you explicitly confirm it’s unused; it likely supports the new CLI. :contentReference[oaicite:17]{index=17}
+- Tkinter is an external prerequisite; xsmbseek README already reflects that; no GUI code removal needed. :contentReference[oaicite:18]{index=18}

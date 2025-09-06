@@ -16,6 +16,13 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable
 import tempfile
 import os
+import time
+
+# Import security helpers for CSV sanitization
+try:
+    from gui.utils.security_helpers import sanitize_csv_cell, sanitize_data_for_export
+except ImportError:
+    from utils.security_helpers import sanitize_csv_cell, sanitize_data_for_export
 
 
 class DataExportEngine:
@@ -29,6 +36,10 @@ class DataExportEngine:
     
     def __init__(self):
         """Initialize the data export engine."""
+        # Progress throttling configuration
+        self._last_progress_time = 0.0
+        self._progress_throttle_interval = 0.1  # 100ms minimum interval (10 updates/second)
+        
         self.export_formats = {
             'csv': self._export_csv,
             'json': self._export_json,
@@ -100,6 +111,51 @@ class DataExportEngine:
             }
         }
     
+    def _should_update_progress(self, current_iteration: int, total_iterations: int, is_forced: bool = False) -> bool:
+        """
+        Intelligent progress throttling to balance UI responsiveness with performance.
+        
+        PERFORMANCE FIX: Replaces count-based batching (every 100 records) with intelligent 
+        time-based throttling to provide consistent progress reporting behavior across 
+        all xsmbseek components and resolve batched progress update issues.
+        
+        Uses time-based throttling (max 10 updates/second) instead of count-based batching
+        to provide smooth progress updates for each record/row while preventing UI flooding.
+        
+        Key Benefits:
+        - Real-time progress for each exported record/row
+        - Consistent with import engine progress behavior  
+        - Prevents UI flooding with time-based throttling (100ms minimum interval)
+        - Always updates on first/last iterations and 10% milestones
+        - Industry-standard 10 updates/second maximum rate
+        
+        Args:
+            current_iteration: Current iteration number (0-based)
+            total_iterations: Total number of iterations
+            is_forced: Force update regardless of throttling (for first/last/milestones)
+            
+        Returns:
+            True if progress should be updated, False if throttled
+        """
+        current_time = time.time()
+        
+        # Always update on first iteration, last iteration, or when forced
+        if is_forced or current_iteration == 0 or current_iteration == total_iterations - 1:
+            self._last_progress_time = current_time
+            return True
+        
+        # Update every 10% milestone regardless of throttling
+        if total_iterations > 10 and (current_iteration + 1) % (total_iterations // 10) == 0:
+            self._last_progress_time = current_time
+            return True
+        
+        # Time-based throttling: update only if enough time has passed
+        if (current_time - self._last_progress_time) >= self._progress_throttle_interval:
+            self._last_progress_time = current_time
+            return True
+        
+        return False
+    
     def export_data(self, data: List[Dict[str, Any]], data_type: str, 
                    export_format: str, output_path: str,
                    include_metadata: bool = True,
@@ -133,11 +189,17 @@ class DataExportEngine:
             if progress_callback:
                 progress_callback(0, "Starting export...")
             
-            # Validate and normalize data
+            # Validate, normalize, and apply security sanitization
             validated_data = self._validate_and_normalize_data(data, data_type)
             
+            # Apply comprehensive security sanitization for export (audit requirement)
+            sanitized_data = sanitize_data_for_export(validated_data, data_type)
+            
+            # Use sanitized data for export
+            validated_data = sanitized_data
+            
             if progress_callback:
-                progress_callback(25, "Data validated, preparing export...")
+                progress_callback(25, "✅ Data validated, preparing export structure...")
             
             # Prepare export metadata
             metadata = self._create_export_metadata(
@@ -146,7 +208,7 @@ class DataExportEngine:
             ) if include_metadata else None
             
             if progress_callback:
-                progress_callback(50, "Exporting data...")
+                progress_callback(50, f"🚀 Starting {export_format.upper()} export of {len(validated_data)} records...")
             
             # Execute export
             export_result = self.export_formats[export_format](
@@ -293,14 +355,19 @@ class DataExportEngine:
                     else:
                         value = str(value)
                     
-                    row.append(value)
+                    # Apply CSV formula injection protection (audit requirement)
+                    sanitized_value = sanitize_csv_cell(value)
+                    row.append(sanitized_value)
                 
                 writer.writerow(row)
                 
-                # Progress update
-                if progress_callback and i % 100 == 0:
+                # Intelligent progress update - updates for each row when throttling allows
+                if progress_callback and self._should_update_progress(i, len(data), False):
                     progress = 50 + int((i / len(data)) * 40)
-                    progress_callback(progress, f"Writing row {i+1}/{len(data)}")
+                    # Add activity indicators for better UX
+                    activity_indicators = ['📝', '💾', '🔄', '⚡', '📊', '📄']
+                    indicator = activity_indicators[i % len(activity_indicators)]
+                    progress_callback(progress, f"{indicator} Exporting row {i+1}/{len(data)} to CSV...")
         
         return {
             'success': True,

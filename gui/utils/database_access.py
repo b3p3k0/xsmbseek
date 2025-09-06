@@ -51,6 +51,16 @@ class DatabaseReader:
         self.cache_timestamps = {}
         self.connection_lock = threading.Lock()
         
+        # Debug database file information
+        print(f"[DEBUG] DatabaseReader: Resolved db_path to: {self.db_path}")
+        if self.db_path.exists():
+            import os
+            stat = os.stat(self.db_path)
+            mod_time = datetime.fromtimestamp(stat.st_mtime)
+            print(f"[DEBUG] Database file exists, size: {stat.st_size} bytes, modified: {mod_time}")
+        else:
+            print(f"[DEBUG] WARNING: Database file does not exist at: {self.db_path}")
+        
         # Mock mode for testing
         self.mock_mode = False
         self.mock_data = self._get_mock_data()
@@ -316,6 +326,7 @@ class DatabaseReader:
             return self.cache[cache_key]
         
         if self.mock_mode:
+            print("[DEBUG] Dashboard summary using mock data")
             summary = {
                 "total_servers": 7,
                 "accessible_shares": 17,
@@ -329,7 +340,9 @@ class DatabaseReader:
                 "database_size_mb": 2.3
             }
         else:
+            print(f"[DEBUG] Dashboard summary querying database: {self.db_path}")
             summary = self._query_dashboard_summary()
+            print(f"[DEBUG] Dashboard query results - Total servers: {summary.get('total_servers')}, Recent discoveries: {summary.get('recent_discoveries')}")
         
         self._cache_result(cache_key, summary)
         return summary
@@ -613,6 +626,7 @@ class DatabaseReader:
             Tuple of (server_list, total_count)
         """
         if self.mock_mode:
+            print("[DEBUG] Server list using mock data")
             servers = self.mock_data["servers"]
             if country_filter:
                 servers = [s for s in servers if s["country_code"] == country_filter]
@@ -624,7 +638,10 @@ class DatabaseReader:
             paginated = servers[offset:offset + limit]
             return paginated, total
         
-        return self._query_server_list(limit, offset, country_filter, recent_scan_only)
+        print(f"[DEBUG] Server list querying database: {self.db_path}, limit={limit}, offset={offset}, recent_scan_only={recent_scan_only}")
+        result = self._query_server_list(limit, offset, country_filter, recent_scan_only)
+        print(f"[DEBUG] Server list query returned {len(result[0])} servers out of {result[1]} total")
+        return result
     
     def _query_server_list(self, limit: int, offset: int, 
                           country_filter: Optional[str],
@@ -664,8 +681,8 @@ class DatabaseReader:
             timestamp_result = conn.execute(recent_timestamp_query).fetchone()
             if timestamp_result and timestamp_result["recent_timestamp"]:
                 recent_time = timestamp_result["recent_timestamp"]
-                # Filter servers seen within 1 hour of the most recent activity
-                where_clause += " AND last_seen >= datetime(?, '-1 hour')"
+                # Filter servers seen on the same date as the most recent activity (consistent with dashboard)
+                where_clause += " AND DATE(last_seen) = DATE(?)"
                 params.append(recent_time)
         
         # Count query
@@ -741,9 +758,9 @@ class DatabaseReader:
             timestamp_result = conn.execute(recent_timestamp_query).fetchone()
             if timestamp_result and timestamp_result["recent_timestamp"]:
                 recent_time = timestamp_result["recent_timestamp"]
-                # Filter servers seen within 1 hour of the most recent activity
+                # Filter servers seen on the same date as the most recent activity (consistent with dashboard)
                 # This captures servers from the most recent scanning session
-                where_clause += " AND s.last_seen >= datetime(?, '-1 hour')"
+                where_clause += " AND DATE(s.last_seen) = DATE(?)"
                 params.append(recent_time)
         
         # Count query

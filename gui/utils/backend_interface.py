@@ -62,14 +62,11 @@ class BackendInterface:
         # Use gui directory for mock data (relative to where GUI components are)
         self.mock_data_path = Path(__file__).parent.parent / "test_data" / "mock_responses"
         
-        # Timeout configuration - loaded from config with environment override support
-        self.default_timeout = None  # No timeout by default
-        self.enable_debug_timeouts = False
+        # SMBSeek operations run without timeout as they are inherently lengthy processes
         
         # Recent filtering configuration - loaded from SMBSeek config
         self.default_recent_days = 90  # Default 90 days as per backend team recommendations
         
-        self._load_timeout_configuration()
         self._load_workflow_configuration()
         self._cleanup_startup_locks()
         
@@ -235,66 +232,7 @@ class BackendInterface:
         """Disable mock mode and use real backend calls."""
         self.mock_mode = False
     
-    # ===== TIMEOUT CONFIGURATION SYSTEM =====
-    
-    def _load_timeout_configuration(self) -> None:
-        """
-        Load timeout configuration from config files with environment override support.
-        
-        Configuration hierarchy (highest priority first):
-        1. Environment variable: SMBSEEK_GUI_TIMEOUT
-        2. xsmbseek-config.json gui.operation_timeout_seconds
-        3. SMBSeek config.json gui.operation_timeout_seconds (if present)
-        4. Default: None (no timeout)
-        
-        Design Decision: Multi-level configuration allows development, testing, 
-        and production flexibility while maintaining safe defaults.
-        """
-        try:
-            # Check environment variable first (highest priority)
-            env_timeout = os.environ.get('SMBSEEK_GUI_TIMEOUT')
-            if env_timeout is not None:
-                if env_timeout.lower() in ('none', 'null', '0'):
-                    self.default_timeout = None
-                else:
-                    self.default_timeout = int(env_timeout)
-                return
-            
-            # Try to load from GUI config first (xsmbseek-config.json)
-            gui_config_path = self.backend_path.parent / "xsmbseek-config.json"
-            if gui_config_path.exists():
-                with open(gui_config_path, 'r') as f:
-                    gui_config = json.load(f)
-                
-                gui_settings = gui_config.get('gui', {})
-                if 'operation_timeout_seconds' in gui_settings:
-                    self.default_timeout = gui_settings.get('operation_timeout_seconds', None)
-                    self.enable_debug_timeouts = gui_settings.get('enable_debug_timeouts', False)
-                    
-                    # Handle explicit zero as no timeout
-                    if self.default_timeout == 0:
-                        self.default_timeout = None
-                    return
-            
-            # Fallback to SMBSeek config file
-            if self.config_path.exists():
-                with open(self.config_path, 'r') as f:
-                    config = json.load(f)
-                
-                gui_config = config.get('gui', {})
-                self.default_timeout = gui_config.get('operation_timeout_seconds', None)
-                self.enable_debug_timeouts = gui_config.get('enable_debug_timeouts', False)
-                
-                # Handle explicit zero as no timeout
-                if self.default_timeout == 0:
-                    self.default_timeout = None
-            
-        except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
-            # Fallback to safe default - no timeout
-            self.default_timeout = None
-            self.enable_debug_timeouts = False
-            print(f"Warning: Could not load timeout configuration: {e}")
-            print("Using default: no timeout")
+    # ===== WORKFLOW CONFIGURATION SYSTEM =====
     
     def _load_workflow_configuration(self) -> None:
         """
@@ -386,69 +324,6 @@ class BackendInterface:
         except (OSError, ProcessLookupError):
             return False
     
-    def _get_operation_timeout(self, timeout_override: Optional[int] = None) -> Optional[int]:
-        """
-        Resolve timeout for operation with override support.
-        
-        Args:
-            timeout_override: Optional per-operation timeout override
-            
-        Returns:
-            Resolved timeout in seconds, or None for no timeout
-            
-        Resolution order:
-        1. timeout_override parameter (highest priority)
-        2. self.default_timeout from config/env
-        3. None (no timeout fallback)
-        """
-        if timeout_override is not None:
-            return timeout_override
-        
-        return self.default_timeout
-    
-    def _format_timeout_duration(self, timeout_seconds: Optional[int]) -> str:
-        """
-        Format timeout duration for user-friendly error messages.
-        
-        Args:
-            timeout_seconds: Timeout in seconds, or None
-            
-        Returns:
-            Formatted duration string (e.g., "2 hours", "30 minutes", "never")
-        """
-        if timeout_seconds is None:
-            return "never"
-        
-        if timeout_seconds < 60:
-            return f"{timeout_seconds} seconds"
-        elif timeout_seconds < 3600:
-            minutes = timeout_seconds // 60
-            return f"{minutes} minute{'s' if minutes != 1 else ''}"
-        else:
-            hours = timeout_seconds / 3600
-            if hours == int(hours):
-                return f"{int(hours)} hour{'s' if int(hours) != 1 else ''}"
-            else:
-                return f"{hours:.1f} hours"
-    
-    def get_timeout_info(self) -> Dict[str, Any]:
-        """
-        Get current timeout configuration information for debugging/verification.
-        
-        Returns:
-            Dictionary with timeout configuration details
-        """
-        env_timeout = os.environ.get('SMBSEEK_GUI_TIMEOUT')
-        
-        return {
-            'effective_timeout_seconds': self.default_timeout,
-            'effective_timeout_display': self._format_timeout_duration(self.default_timeout),
-            'environment_variable': env_timeout,
-            'debug_timeouts_enabled': self.enable_debug_timeouts,
-            'config_file_path': str(self.config_path),
-            'config_file_exists': self.config_path.exists()
-        }
-    
     def run_scan(self, countries: List[str], progress_callback: Optional[Callable] = None,
                  use_recent_filtering: bool = True, recent_days: Optional[int] = None) -> Dict:
         """
@@ -482,6 +357,81 @@ class BackendInterface:
             if recent_days is None:
                 recent_days = self.default_recent_days
             recent_hours = recent_days * 24
+            cmd.extend(["--recent", str(recent_hours)])
+        
+        return self._execute_with_progress(cmd, progress_callback)
+    
+    def run_scan_with_params(self, scan_params: Dict[str, Any], 
+                            progress_callback: Optional[Callable] = None) -> Dict:
+        """
+        Execute SMBSeek scan with comprehensive security parameters.
+        
+        Implements audit requirement for SMB1 mode with explicit consent
+        and parameter validation.
+        
+        Args:
+            scan_params: Dictionary containing:
+                - countries: List of country codes (or None for global)
+                - smb1_enabled: Boolean for SMB1 discovery mode
+                - username: Username for authentication (ignored if SMB1)
+                - password: Password for authentication (ignored if SMB1)
+            progress_callback: Function to call with progress updates
+            
+        Returns:
+            Dictionary with scan results and statistics
+        """
+        if self.mock_mode:
+            return self._mock_scan_with_params(scan_params, progress_callback)
+        
+        # Validate parameters first
+        validation_errors = self.validate_scan_parameters(scan_params)
+        if validation_errors:
+            error_msg = "Parameter validation failed: " + "; ".join(validation_errors.values())
+            raise ValueError(error_msg)
+        
+        # Extract parameters
+        countries = scan_params.get('countries', [])
+        smb1_enabled = scan_params.get('smb1_enabled', False)
+        username = scan_params.get('username', '')
+        password = scan_params.get('password', '')
+        
+        # Build base command
+        cmd = [str(self.cli_script)]
+        
+        if smb1_enabled:
+            # SMB1 Discovery Mode - implements audit security requirements
+            cmd.extend(["run", "--enable-smb1", "--yes-i-know"])
+            
+            if progress_callback:
+                progress_callback(0, "⚠️ SMB1 Discovery Mode enabled - Anonymous authentication only")
+        else:
+            # Normal SMB2/3 mode (safe by default)
+            cmd.extend(["run"])
+            
+            if progress_callback:
+                progress_callback(0, "🔒 Safe mode: SMB2/SMB3 with signing required")
+        
+        # Add country parameter if specified
+        if countries:
+            if isinstance(countries, list):
+                countries_str = ",".join(countries)
+            else:
+                countries_str = str(countries)
+            cmd.extend(["--country", countries_str])
+        
+        # Add authentication parameters (only in non-SMB1 mode)
+        if not smb1_enabled:
+            if username:
+                cmd.extend(["--username", username])
+            if password:
+                cmd.extend(["--password", password])
+        
+        # Add verbose output for progress parsing
+        cmd.append("--verbose")
+        
+        # Add recent filtering by default (unless SMB1 discovery)
+        if not smb1_enabled:
+            recent_hours = self.default_recent_days * 24
             cmd.extend(["--recent", str(recent_hours)])
         
         return self._execute_with_progress(cmd, progress_callback)
@@ -663,25 +613,23 @@ class BackendInterface:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Database query failed: {e.stderr}")
     
-    def _execute_with_progress(self, cmd: List[str], progress_callback: Optional[Callable], 
-                               timeout_override: Optional[int] = None) -> Dict:
+    def _execute_with_progress(self, cmd: List[str], progress_callback: Optional[Callable]) -> Dict:
         """
-        Execute command with real-time progress tracking and configurable timeout.
+        Execute command with real-time progress tracking.
+        
+        SMBSeek operations are inherently lengthy and indeterminate by nature,
+        expected to take several hours. No timeout is applied to allow operations
+        to complete naturally.
         
         Args:
             cmd: Command list for subprocess
             progress_callback: Function to call with (percentage, message) updates
-            timeout_override: Optional timeout override in seconds (None = use config default)
             
         Returns:
             Dictionary with execution results
             
-        Raises:
-            TimeoutError: If operation exceeds configured timeout
-            
         Implementation: Uses threading to capture output in real-time and
-        parse progress indicators from CLI output. Timeout is configurable
-        via config file, environment variable, or method parameter.
+        parse progress indicators from CLI output.
         """
         self.current_operation = {
             "command": " ".join(cmd),
@@ -725,22 +673,9 @@ class BackendInterface:
             )
             progress_thread.start()
             
-            # Wait for completion with configurable timeout
-            operation_timeout = self._get_operation_timeout(timeout_override)
-            
-            # Debug logging for timeout resolution
-            if self.enable_debug_timeouts:
-                timeout_source = "override" if timeout_override else "config/env"
-                timeout_display = self._format_timeout_duration(operation_timeout)
-                print(f"DEBUG: Using timeout: {timeout_display} (source: {timeout_source})")
-            
-            try:
-                returncode = process.wait(timeout=operation_timeout)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                timeout_duration = self._format_timeout_duration(operation_timeout)
-                cmd_str = " ".join(cmd[:3])  # First 3 command parts for context
-                raise TimeoutError(f"Operation '{cmd_str}...' timed out after {timeout_duration}")
+            # Wait for completion without timeout - SMBSeek operations are inherently lengthy
+            # and indeterminate by nature, expected to take several hours
+            returncode = process.wait()
             
             progress_thread.join()
             
@@ -1528,6 +1463,63 @@ class BackendInterface:
             "countries": countries
         }
     
+    def _mock_scan_with_params(self, scan_params: Dict[str, Any], 
+                              progress_callback: Optional[Callable]) -> Dict:
+        """
+        Mock scan operation with security parameters for testing.
+        
+        Args:
+            scan_params: Scan parameters dictionary
+            progress_callback: Progress callback function
+            
+        Returns:
+            Mock scan results with security parameter information
+        """
+        countries = scan_params.get('countries', ['US'])
+        smb1_enabled = scan_params.get('smb1_enabled', False)
+        username = scan_params.get('username', '')
+        
+        if progress_callback:
+            # Simulate security-aware progress
+            if smb1_enabled:
+                stages = [
+                    (5, "⚠️ SMB1 Discovery Mode - Anonymous authentication only"),
+                    (15, "Querying Shodan for SMB1-capable servers (legacy search)"),
+                    (30, "Testing SMB1 anonymous connections (strict timeouts)"),
+                    (50, "Discovery: 45/80 SMB1 hosts (56.3%) | Anonymous only"),
+                    (75, "Discovery: 70/80 SMB1 hosts (87.5%) | Discovery complete"),
+                    (95, "SMB1 discovery completed - SMB1 mode automatically disabled"),
+                    (100, "Legacy discovery complete")
+                ]
+            else:
+                auth_desc = f"authenticated as '{username}'" if username else "anonymous"
+                stages = [
+                    (5, f"🔒 Safe mode: SMB2/SMB3 scanning with {auth_desc}"),
+                    (15, "Querying Shodan for modern SMB servers"),
+                    (30, "Testing SMB2/3 connections with signing required"),
+                    (50, "Progress: 60/120 (50.0%) | Success: 18, Failed: 42"),
+                    (75, "Progress: 90/120 (75.0%) | Success: 28, Failed: 62"),
+                    (100, "Safe mode discovery complete")
+                ]
+            
+            for percentage, message in stages:
+                time.sleep(0.4)
+                progress_callback(percentage, message)
+        
+        return {
+            "success": True,
+            "protocol_mode": "SMB1" if smb1_enabled else "SMB2/3",
+            "smb1_enabled": smb1_enabled,
+            "authentication_used": username if not smb1_enabled else "anonymous",
+            "shodan_results": 80 if smb1_enabled else 120,
+            "hosts_tested": 80 if smb1_enabled else 120,
+            "successful_auth": 15 if smb1_enabled else 28,
+            "failed_auth": 65 if smb1_enabled else 92,
+            "session_id": 4,
+            "countries": countries,
+            "security_mode": "Legacy Discovery" if smb1_enabled else "Safe Default"
+        }
+    
     def _mock_discover_operation(self, countries: List[str], progress_callback: Optional[Callable]) -> Dict:
         """Mock discovery-only operation."""
         return self._mock_scan_operation(countries, progress_callback)
@@ -1632,3 +1624,109 @@ class BackendInterface:
             return "Unknown"
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return None
+    
+    def validate_scan_parameters(self, scan_params: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Validate scan parameters for security compliance.
+        
+        Implements audit requirement for parameter validation before scan execution.
+        
+        Args:
+            scan_params: Scan parameters to validate
+            
+        Returns:
+            Dictionary of validation errors (empty if valid)
+        """
+        errors = {}
+        
+        smb1_enabled = scan_params.get('smb1_enabled', False)
+        username = scan_params.get('username', '')
+        password = scan_params.get('password', '')
+        countries = scan_params.get('countries', [])
+        
+        # Validate SMB1 mode restrictions
+        if smb1_enabled:
+            if username or password:
+                errors['credentials'] = "SMB1 mode does not accept credentials (anonymous only)"
+        
+        # Validate country codes
+        if countries:
+            if isinstance(countries, str):
+                countries = [countries]
+            
+            for country in countries:
+                if not isinstance(country, str) or len(country) < 2 or len(country) > 3:
+                    errors['countries'] = f"Invalid country code: '{country}' (must be 2-3 letters)"
+                    break
+                if not country.isalpha():
+                    errors['countries'] = f"Invalid country code: '{country}' (letters only)"
+                    break
+        
+        # Validate credential format (if provided and not SMB1)
+        if not smb1_enabled:
+            if username and len(username) > 100:
+                errors['username'] = "Username too long (max 100 characters)"
+            if password and len(password) > 100:
+                errors['password'] = "Password too long (max 100 characters)"
+        
+        return errors
+    
+    def is_smb1_mode_available(self) -> bool:
+        """
+        Check if SMB1 discovery mode is available in the backend.
+        
+        Returns:
+            True if backend supports SMB1 discovery with audit security controls
+        """
+        if self.mock_mode:
+            return True
+        
+        try:
+            # Test if backend supports --enable-smb1 flag
+            result = subprocess.run(
+                [str(self.cli_script), "--help"],
+                cwd=self.backend_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                # Check if help output mentions SMB1 flags
+                return "--enable-smb1" in result.stdout
+            else:
+                return False
+                
+        except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError):
+            return False
+    
+    def format_scan_summary(self, scan_result: Dict[str, Any]) -> str:
+        """
+        Format scan results summary with security information.
+        
+        Args:
+            scan_result: Scan result dictionary
+            
+        Returns:
+            Formatted summary string
+        """
+        if not scan_result:
+            return "No scan results available"
+        
+        protocol_mode = scan_result.get('protocol_mode', 'Unknown')
+        smb1_enabled = scan_result.get('smb1_enabled', False)
+        hosts_tested = scan_result.get('hosts_tested', 0)
+        successful_auth = scan_result.get('successful_auth', 0)
+        security_mode = scan_result.get('security_mode', 'Unknown')
+        
+        summary_lines = [
+            f"Security Mode: {security_mode}",
+            f"Protocol: {protocol_mode}",
+            f"Hosts Tested: {hosts_tested:,}",
+            f"Successful Connections: {successful_auth:,}"
+        ]
+        
+        if smb1_enabled:
+            summary_lines.append("⚠️ SMB1 mode was automatically disabled after scan")
+        
+        return "\n".join(summary_lines)
