@@ -86,6 +86,7 @@ smbseek/
 xsmbseek-config.json
 docs/
 gui/.scan_lock
+gui/tests/
 smbseek.db
 .gitignore
 
