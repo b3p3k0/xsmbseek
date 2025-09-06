@@ -151,6 +151,9 @@ class DashboardWidget:
         self._build_summary_section()
         self._build_status_bar()
         
+        # Set up global keyboard shortcuts
+        self._setup_keyboard_shortcuts()
+        
         # Initial scan state check and data load
         self._check_external_scans()
         self._refresh_dashboard_data()
@@ -191,6 +194,15 @@ class DashboardWidget:
         )
         self.theme.apply_to_widget(config_button, "button_secondary")
         config_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Help button
+        help_button = tk.Button(
+            actions_frame,
+            text="ℹ️ Help",
+            command=self._show_help_dialog
+        )
+        self.theme.apply_to_widget(help_button, "button_secondary")
+        help_button.pack(side=tk.LEFT, padx=(0, 0))
         
     
     def _build_status_section(self) -> None:
@@ -278,9 +290,9 @@ class DashboardWidget:
         self.summary_frame.pack(fill=tk.X)
         
         # Configure columns: Total Servers (fixed width) + Recent Activity (expanding)
-        self.summary_frame.columnconfigure(0, weight=0)  # Total Servers - fixed width
+        self.summary_frame.columnconfigure(0, weight=0, minsize=160)  # Total Servers - fixed width with guaranteed space
         self.summary_frame.columnconfigure(1, weight=1)  # Recent Activity - expandable
-        self.summary_frame.rowconfigure(0, weight=1)     # Allow row to expand for equal heights
+        self.summary_frame.rowconfigure(0, weight=0)     # Content-based heights, no forced expansion
         
         # Total Servers card (left side)
         self._build_horizontal_total_servers()
@@ -302,7 +314,7 @@ class DashboardWidget:
         # Icon and title
         title_frame = tk.Frame(servers_frame)
         self.theme.apply_to_widget(title_frame, "card")
-        title_frame.pack(fill=tk.X, pady=(8, 3))
+        title_frame.pack(pady=(12, 8))  # Increased padding for better spacing
         
         icon_label = self.theme.create_styled_label(
             title_frame,
@@ -328,20 +340,16 @@ class DashboardWidget:
             textvariable=self.horizontal_servers_var,
             justify="center"
         )
-        value_label.pack(pady=(8, 8))
+        value_label.pack(pady=(12, 12))
         
-        # View details button (standardized styling)
-        view_button = tk.Button(
-            servers_frame,
-            text="[View Details]",
-            command=lambda: self._open_drill_down("server_list"),
-            height=1  # Fixed height for consistency
-        )
-        self.theme.apply_to_widget(view_button, "button_secondary")
-        view_button.pack(pady=(5, 10))  # Optimized padding for compact layout
+        # Make entire card clickable instead of having a separate button
+        servers_frame.config(cursor="hand2")  # Show clickable cursor
+        servers_frame.bind("<Button-1>", lambda e: self._on_servers_card_click())
+        servers_frame.bind("<Enter>", lambda e: self._on_servers_card_hover_enter(servers_frame))
+        servers_frame.bind("<Leave>", lambda e: self._on_servers_card_hover_leave(servers_frame))
     
     def _build_recent_activity(self) -> None:
-        """Build recent activity display for expanded horizontal layout."""
+        """Build recent activity display for expanded horizontal layout with enhanced entry count."""
         activity_frame = tk.Frame(self.summary_frame)
         self.theme.apply_to_widget(activity_frame, "card")
         activity_frame.grid(row=0, column=1, padx=(8, 0), pady=3, sticky="nsew")
@@ -352,22 +360,12 @@ class DashboardWidget:
             "RECENT ACTIVITY",
             "heading"
         )
-        activity_title.pack(anchor="w", padx=10, pady=(10, 5))
+        activity_title.pack(anchor="w", padx=10, pady=(15, 8))
         
         # Activity list container
         self.activity_list_frame = tk.Frame(activity_frame)
         self.theme.apply_to_widget(self.activity_list_frame, "card")
-        self.activity_list_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        # Activity timeline button (standardized styling)
-        timeline_button = tk.Button(
-            activity_frame,
-            text="[Activity Timeline...]",
-            command=lambda: self._open_drill_down("activity_timeline"),
-            height=1  # Fixed height for consistency
-        )
-        self.theme.apply_to_widget(timeline_button, "button_secondary")
-        timeline_button.pack(pady=(5, 10))  # Optimized padding for compact layout
+        self.activity_list_frame.pack(fill=tk.X, padx=10, pady=(0, 15))
     
     def _refresh_dashboard_data(self) -> None:
         """
@@ -426,7 +424,7 @@ class DashboardWidget:
     
     
     def _update_activity_display(self, activity: List[Dict[str, Any]]) -> None:
-        """Update recent activity display."""
+        """Update recent activity display with up to 8 entries."""
         # Clear existing activity
         for widget in self.activity_list_frame.winfo_children():
             widget.destroy()
@@ -442,7 +440,7 @@ class DashboardWidget:
             return
         
         # Display recent activity entries
-        for entry in activity[:5]:  # Latest 5 entries
+        for entry in activity[:8]:  # Latest 8 entries (increased from 5)
             activity_frame = tk.Frame(self.activity_list_frame)
             self.theme.apply_to_widget(activity_frame, "card")
             activity_frame.pack(fill=tk.X, pady=1)
@@ -819,6 +817,128 @@ class DashboardWidget:
         if self.drill_down_callback:
             self.drill_down_callback("app_config", {})
     
+    def _show_help_dialog(self) -> None:
+        """
+        Display help dialog with user guidance and interface orientation.
+        
+        Shows a modal dialog containing essential usage instructions, common tasks,
+        troubleshooting tips, and link to documentation. Uses problem-solving
+        approach to help users accomplish key tasks effectively.
+        
+        Design Decision: Modal dialog ensures focused help experience while
+        maintaining consistent theming and accessibility standards.
+        """
+        # Create modal dialog
+        help_dialog = tk.Toplevel(self.parent)
+        help_dialog.title("SMBSeek Help")
+        help_dialog.geometry("550x450")
+        help_dialog.minsize(500, 400)
+        help_dialog.transient(self.parent)
+        help_dialog.grab_set()
+        
+        # Center the dialog
+        help_dialog.update_idletasks()
+        x = (help_dialog.winfo_screenwidth() // 2) - (help_dialog.winfo_width() // 2)
+        y = (help_dialog.winfo_screenheight() // 2) - (help_dialog.winfo_height() // 2)
+        help_dialog.geometry(f"+{x}+{y}")
+        
+        # Apply consistent theming
+        self.theme.apply_to_widget(help_dialog, "main_window")
+        
+        # Main content frame with scrollbar
+        main_frame = tk.Frame(help_dialog)
+        self.theme.apply_to_widget(main_frame, "main_window")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Create scrollable text area
+        text_widget = tk.Text(
+            main_frame,
+            wrap=tk.WORD,
+            bg=self.theme.colors["card_bg"],
+            fg=self.theme.colors["text"],
+            font=self.theme.fonts["body"],
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=15,
+            pady=15
+        )
+        
+        # Scrollbar for text area
+        scrollbar = tk.Scrollbar(main_frame, command=text_widget.yview)
+        text_widget.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack text and scrollbar
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Help content (Draft 3 - Problem-Solving Style)
+        help_content = """🎯 Using SMBSeek Effectively
+
+Getting Started:
+New to SMBSeek? Click "Start Scan" and select your target region. The system will guide you through the process.
+
+Understanding Results:
+• Numbers show discovered vs accessible servers
+• Click any metric card to explore detailed findings  
+• Recent Activity tracks your scan history
+
+Common Tasks:
+✓ Run a scan: "Start Scan" → Choose countries → Monitor progress
+✓ View findings: Click "View Details" on Total Servers card
+✓ Check history: Browse "Recent Activity" section
+✓ Adjust settings: Use "Config" button for preferences
+
+Troubleshooting:
+• No results? Check Config settings and network connectivity
+• Scan stuck? Progress bar shows current operation status
+• Need to stop? Click the scan button during operation
+
+Documentation: https://github.com/b3p3k0/xsmbseek"""
+        
+        # Insert help content
+        text_widget.insert(tk.END, help_content)
+        text_widget.configure(state=tk.DISABLED)  # Make read-only
+        
+        # Close button frame
+        button_frame = tk.Frame(help_dialog)
+        self.theme.apply_to_widget(button_frame, "main_window")
+        button_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
+        
+        # Close button
+        close_button = tk.Button(
+            button_frame,
+            text="Close",
+            command=help_dialog.destroy
+        )
+        self.theme.apply_to_widget(close_button, "button_primary")
+        close_button.pack(side=tk.RIGHT)
+        
+        # Keyboard shortcuts
+        help_dialog.bind('<Escape>', lambda e: help_dialog.destroy())
+        help_dialog.bind('<F1>', lambda e: help_dialog.destroy())  # Toggle help off
+        
+        # Focus management for accessibility
+        close_button.focus_set()
+        
+        # Handle window close button
+        help_dialog.protocol("WM_DELETE_WINDOW", help_dialog.destroy)
+    
+    def _setup_keyboard_shortcuts(self) -> None:
+        """
+        Set up global keyboard shortcuts for dashboard functionality.
+        
+        Provides keyboard accessibility for key functions:
+        - F1: Show help dialog
+        - Escape: Focus management (handled by individual dialogs)
+        
+        Design Decision: Global shortcuts improve accessibility and provide
+        standard keyboard navigation expected by users.
+        """
+        # Bind F1 to help dialog globally for the dashboard
+        self.parent.bind('<F1>', lambda e: self._show_help_dialog())
+        
+        # Focus the main frame to ensure shortcuts work
+        self.main_frame.focus_set()
     
     def _open_drill_down(self, window_type: str) -> None:
         """
@@ -1170,3 +1290,38 @@ class DashboardWidget:
                 f"Failed to stop scan: {error_message}\n\n"
                 "Click 'Stop Scan' again to retry."
             )
+    
+    # ===== CARD INTERACTION HANDLERS =====
+    
+    def _on_servers_card_click(self) -> None:
+        """Handle click on Total Servers card to open server list."""
+        try:
+            if self.drill_down_callback:
+                self.drill_down_callback("server_list", {})
+            else:
+                # Fallback if callback isn't set
+                print("Warning: drill_down_callback not set for servers card click")
+        except Exception as e:
+            # Prevent crashes from click handling errors
+            print(f"Error handling servers card click: {e}")
+    
+    def _on_servers_card_hover_enter(self, card_frame: tk.Frame) -> None:
+        """Add subtle visual feedback when hovering over Total Servers card."""
+        try:
+            # Slightly lighten the background to indicate interactivity
+            original_bg = self.theme.colors.get("card_bg", "#f0f0f0")
+            hover_bg = self.theme.colors.get("card_hover_bg", "#f8f8f8")
+            card_frame.configure(bg=hover_bg)
+        except Exception:
+            # Fallback - don't break functionality if theming fails
+            pass
+    
+    def _on_servers_card_hover_leave(self, card_frame: tk.Frame) -> None:
+        """Remove hover visual feedback when leaving Total Servers card."""
+        try:
+            # Return to original background color
+            original_bg = self.theme.colors.get("card_bg", "#f0f0f0")
+            card_frame.configure(bg=original_bg)
+        except Exception:
+            # Fallback - don't break functionality if theming fails
+            pass

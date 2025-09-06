@@ -120,11 +120,10 @@ class ServerListWindow:
         # Apply theme
         self.theme.apply_to_widget(self.window, "main_window")
         
-        # Make window modal (use master window if available)
+        # Set up window relationship (but don't grab yet)
         if hasattr(self.parent, 'winfo_toplevel'):
             master_window = self.parent.winfo_toplevel()
             self.window.transient(master_window)
-        self.window.grab_set()
         
         # Center window
         self._center_window()
@@ -137,6 +136,12 @@ class ServerListWindow:
         
         # Bind events
         self._setup_event_handlers()
+        
+        # Load data and make modal after UI is ready
+        self._load_data()
+        
+        # Make window modal after everything is set up
+        self.window.after(100, self._make_window_modal)
     
     def _center_window(self) -> None:
         """Center window on parent."""
@@ -153,6 +158,15 @@ class ServerListWindow:
             x = parent_x + (parent_width // 2) - (width // 2)
             y = parent_y + (parent_height // 2) - (height // 2)
             self.window.geometry(f"{width}x{height}+{x}+{y}")
+    
+    def _make_window_modal(self) -> None:
+        """Make window modal after it's fully rendered to avoid grab errors."""
+        try:
+            if self.window and self.window.winfo_viewable():
+                self.window.grab_set()
+        except tk.TclError as e:
+            # Log but don't crash if modal setup fails
+            print(f"Warning: Could not make server list window modal: {e}")
     
     def _create_header(self) -> None:
         """Create window header with title and controls."""
