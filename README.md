@@ -19,7 +19,7 @@ xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek 
    cd xsmbseek
    ```
 
-2. **Install SMBSeek (required external dependency):**
+2. **Install SMBSeek (required external dependency; not vendored in this repo):**
    ```bash
    # Clone SMBSeek as a sibling directory (recommended)
    cd ..
@@ -36,7 +36,8 @@ xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek 
    ./xsmbseek
    ```
 
-   **Note:** If SMBSeek is installed elsewhere, specify the path:
+   **Note:** This repository does not include the `smbseek/` directory. Clone SMBSeek separately and point xsmbseek at it as needed.
+   If SMBSeek is installed elsewhere, specify the path:
    ```bash
    ./xsmbseek --smbseek-path /path/to/smbseek
    ```
@@ -44,7 +45,7 @@ xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek 
 ### First Run
 xsmbseek will automatically detect SMBSeek in common locations:
 1. `./smbseek` (current directory)
-2. `../smbseek` (sibling directory - recommended)
+2. `../smbseek` (sibling directory – recommended)
 3. System PATH
 
 If SMBSeek is not found automatically, xsmbseek will show a setup dialog to help you configure the correct path.
@@ -80,17 +81,14 @@ xsmbseek uses a dual configuration system:
 ```
 xsmbseek/                      # xsmbseek GUI frontend
 ├── xsmbseek                   # Executable GUI frontend
-├── xsmbseek-config.json       # GUI configuration
-├── gui/                       # GUI components
-│   ├── components/            # Widgets and windows
-│   └── utils/                 # GUI utilities
-└── docs/                      # Documentation
+├── xsmbseek-config.json       # GUI configuration (local, user-specific)
+├── gui/                       # GUI components and utilities
+└── .gitignore                 # Excludes dev/test artifacts and smbseek/
 
-../smbseek/                    # SMBSeek toolkit (external dependency)
+../smbseek/                    # SMBSeek toolkit (external dependency; clone separately)
 ├── smbseek.py                 # SMBSeek main executable
 ├── conf/                      # SMBSeek configuration
-├── shared/                    # SMBSeek core modules
-└── tools/                     # SMBSeek legacy tools
+└── shared/                    # SMBSeek core modules
 ```
 
 ### Key Features
@@ -124,18 +122,9 @@ python3 simple_test.py
 ./xsmbseek --smbseek-path /opt/smbseek --mock
 ```
 
-##  Human Testing
-
-See [`docs/HUMAN_TESTING_GUIDE.md`](docs/HUMAN_TESTING_GUIDE.md) for comprehensive testing instructions including:
-- Brand new user journey
-- Configuration management testing
-- Error handling and recovery
-- Integration testing with SMBSeek
-
 ##  Documentation
 
 - **CLAUDE.md**: Development guidance for AI assistants
-- **docs/HUMAN_TESTING_GUIDE.md**: Step-by-step testing instructions
 - **SMBSeek Documentation**: See the SMBSeek repository for security tool documentation
 
 ##  Security
