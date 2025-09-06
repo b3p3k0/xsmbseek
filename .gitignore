@@ -124,3 +124,15 @@ dist/
 
 # Local configs
 *.local.json
+
+# Explicit dev files to ignore
+comprehensive_gui_audit.py
+validate_gui_safety.py
+setup_gui_dev_env.sh
+CLAUDE_INTEGRATION_GUIDE.md
+CONFIGURATION_DIALOG_IMPLEMENTATION.md
+ENHANCED_SHARE_TRACKING_IMPLEMENTATION.md
+SERVER_DETAILS_ENHANCEMENT_SUMMARY.md
+
+# Generated exports
+smbseek_servers*.csv
