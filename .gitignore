@@ -82,9 +82,9 @@ debug_*.py
 # SMBSeek external dependency (user-installed)
 smbseek/
 
-# 
+#
 xsmbseek-config.json
-docs/FRONTEND_INTEGRATION_RECOMMENDATIONS.md
+docs/
 gui/.scan_lock
 smbseek.db
 .gitignore
