@@ -80,9 +80,9 @@ class DatabaseSetupDialog:
             self.dialog = tk.Tk()
         
         self.dialog.title("SMBSeek - Database Setup")
-        self.dialog.geometry("700x550")
+        self.dialog.geometry("700x560")
         self.dialog.resizable(True, True)
-        self.dialog.minsize(650, 500)  # Prevent dialog from becoming too small
+        self.dialog.minsize(650, 520)  # Prevent dialog from becoming too small
         
         # Apply theme
         self.theme.apply_to_widget(self.dialog, "main_window")

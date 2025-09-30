@@ -76,14 +76,11 @@ class DashboardWidget:
         self.status_frame = None
         self.progress_frame = None
         self.metrics_frame = None
-        self.summary_frame = None
         self.scan_button = None
         self.status_bar = None
         self.progress_bar = None
         self.update_time_label = None
         self.status_message = None
-        self.activity_list_frame = None
-        self.horizontal_servers_var = None
         
         # Progress tracking
         self.progress_var = tk.DoubleVar()
@@ -148,7 +145,6 @@ class DashboardWidget:
         self._build_header_section()
         self._build_status_section()
         self._build_progress_section()
-        self._build_summary_section()
         self._build_status_bar()
         
         # Initial scan state check and data load
@@ -182,7 +178,16 @@ class DashboardWidget:
         )
         self.theme.apply_to_widget(self.scan_button, "button_primary")
         self.scan_button.pack(side=tk.LEFT, padx=(0, 5))
-        
+
+        # Servers button
+        servers_button = tk.Button(
+            actions_frame,
+            text="📋 Servers",
+            command=lambda: self._open_drill_down("server_list")
+        )
+        self.theme.apply_to_widget(servers_button, "button_secondary")
+        servers_button.pack(side=tk.LEFT, padx=(0, 5))
+
         # Settings button
         config_button = tk.Button(
             actions_frame,
@@ -269,106 +274,7 @@ class DashboardWidget:
         self.progress_var.set(0)
         self.progress_text.set("Ready to scan")
         self.progress_detail_text.set("Click 'Start Scan' to begin security assessment")
-    
-    def _build_summary_section(self) -> None:
-        """Build horizontal layout with Total Servers and expanded Recent Activity."""
-        # Horizontal layout for Total Servers + Recent Activity
-        self.summary_frame = tk.Frame(self.main_frame)
-        self.theme.apply_to_widget(self.summary_frame, "main_window")
-        self.summary_frame.pack(fill=tk.X)
-        
-        # Configure columns: Total Servers (fixed width) + Recent Activity (expanding)
-        self.summary_frame.columnconfigure(0, weight=0)  # Total Servers - fixed width
-        self.summary_frame.columnconfigure(1, weight=1)  # Recent Activity - expandable
-        self.summary_frame.rowconfigure(0, weight=1)     # Allow row to expand for equal heights
-        
-        # Total Servers card (left side)
-        self._build_horizontal_total_servers()
-        
-        # Recent Activity (right side, expanded)
-        self._build_recent_activity()
-    
-    def _build_horizontal_total_servers(self) -> None:
-        """Build Total Servers card for horizontal layout."""
-        servers_frame = tk.Frame(self.summary_frame)
-        self.theme.apply_to_widget(servers_frame, "card")
-        servers_frame.grid(row=0, column=0, padx=(0, 8), pady=3, sticky="nsew")
-        
-        # Configure fixed width for Total Servers card (maintain width, allow height to stretch)
-        servers_frame.config(width=150)  # Optimized width for better proportions
-        servers_frame.grid_propagate(True)  # Allow height to adjust with grid
-        servers_frame.pack_propagate(False)  # Maintain fixed width for packed elements
-        
-        # Icon and title
-        title_frame = tk.Frame(servers_frame)
-        self.theme.apply_to_widget(title_frame, "card")
-        title_frame.pack(fill=tk.X, pady=(8, 3))
-        
-        icon_label = self.theme.create_styled_label(
-            title_frame,
-            "🖥",
-            "heading"
-        )
-        icon_label.pack()
-        
-        title_label = self.theme.create_styled_label(
-            title_frame,
-            "Total\nServers",
-            "small",
-            justify="center"
-        )
-        title_label.pack(pady=(5, 0))
-        
-        # Value display
-        self.horizontal_servers_var = tk.StringVar(value="--")
-        value_label = self.theme.create_styled_label(
-            servers_frame,
-            "",
-            "title",
-            textvariable=self.horizontal_servers_var,
-            justify="center"
-        )
-        value_label.pack(pady=(8, 8))
-        
-        # View details button (standardized styling)
-        view_button = tk.Button(
-            servers_frame,
-            text="[View Details]",
-            command=lambda: self._open_drill_down("server_list"),
-            height=1  # Fixed height for consistency
-        )
-        self.theme.apply_to_widget(view_button, "button_secondary")
-        view_button.pack(pady=(5, 10))  # Optimized padding for compact layout
-    
-    def _build_recent_activity(self) -> None:
-        """Build recent activity display for expanded horizontal layout."""
-        activity_frame = tk.Frame(self.summary_frame)
-        self.theme.apply_to_widget(activity_frame, "card")
-        activity_frame.grid(row=0, column=1, padx=(8, 0), pady=3, sticky="nsew")
-        
-        # Title
-        activity_title = self.theme.create_styled_label(
-            activity_frame,
-            "RECENT ACTIVITY",
-            "heading"
-        )
-        activity_title.pack(anchor="w", padx=10, pady=(10, 5))
-        
-        # Activity list container
-        self.activity_list_frame = tk.Frame(activity_frame)
-        self.theme.apply_to_widget(self.activity_list_frame, "card")
-        self.activity_list_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        # Activity timeline button (standardized styling)
-        timeline_button = tk.Button(
-            activity_frame,
-            text="[Activity Timeline...]",
-            command=lambda: self._open_drill_down("activity_timeline"),
-            height=1  # Fixed height for consistency
-        )
-        self.theme.apply_to_widget(timeline_button, "button_secondary")
-        timeline_button.pack(pady=(5, 10))  # Optimized padding for compact layout
-    
+
     def _refresh_dashboard_data(self) -> None:
         """
         Refresh all dashboard data from database.
@@ -379,11 +285,6 @@ class DashboardWidget:
         try:
             # Get dashboard summary
             summary = self.db_reader.get_dashboard_summary()
-            self._update_metrics_display(summary)
-            
-            # Get recent activity
-            activity = self.db_reader.get_recent_activity(days=7)
-            self._update_activity_display(activity)
             
             # Update status
             self.last_update = datetime.now()
@@ -395,18 +296,7 @@ class DashboardWidget:
             
         except Exception as e:
             self._handle_refresh_error(e)
-    
-    def _update_metrics_display(self, summary: Dict[str, Any]) -> None:
-        """Update horizontal Total Servers card with new data."""
-        # Update horizontal Total Servers card
-        if hasattr(self, 'horizontal_servers_var') and self.horizontal_servers_var:
-            servers_value = summary.get("total_servers", 0)
-            if isinstance(servers_value, (int, float)):
-                display_value = f"{servers_value:,}" if servers_value >= 1000 else str(servers_value)
-            else:
-                display_value = str(servers_value)
-            self.horizontal_servers_var.set(display_value)
-    
+
     def _refresh_after_scan_completion(self) -> None:
         """
         Refresh dashboard after scan completion with cache invalidation.
@@ -423,42 +313,7 @@ class DashboardWidget:
         except Exception as e:
             print(f"Dashboard refresh error after scan completion: {e}")
             # Continue anyway
-    
-    
-    def _update_activity_display(self, activity: List[Dict[str, Any]]) -> None:
-        """Update recent activity display."""
-        # Clear existing activity
-        for widget in self.activity_list_frame.winfo_children():
-            widget.destroy()
-        
-        if not activity:
-            no_activity_label = self.theme.create_styled_label(
-                self.activity_list_frame,
-                "No recent activity",
-                "small",
-                fg=self.theme.colors["text_secondary"]
-            )
-            no_activity_label.pack(pady=5)
-            return
-        
-        # Display recent activity entries
-        for entry in activity[:5]:  # Latest 5 entries
-            activity_frame = tk.Frame(self.activity_list_frame)
-            self.theme.apply_to_widget(activity_frame, "card")
-            activity_frame.pack(fill=tk.X, pady=1)
-            
-            # Activity text
-            date = entry.get("date", "Unknown")
-            discoveries = entry.get("discoveries", 0)
-            
-            activity_text = f"┌─ {date}: {discoveries} new discoveries"
-            activity_label = self.theme.create_styled_label(
-                activity_frame,
-                activity_text,
-                "mono_small"
-            )
-            activity_label.pack(anchor="w")
-    
+
     def _update_status_display(self, summary: Dict[str, Any]) -> None:
         """Update status bar information."""
         # Main status

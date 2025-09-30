@@ -67,7 +67,7 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("500x460")
+        self.dialog.geometry("500x410")
         self.dialog.minsize(400, 250)
         
         # Apply theme
