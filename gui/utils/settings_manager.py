@@ -74,7 +74,8 @@ class SettingsManager:
                 'last_export_location': '',
                 'last_import_location': '',
                 'export_format_preference': 'csv',
-                'import_mode_preference': 'merge'
+                'import_mode_preference': 'merge',
+                'favorite_servers': []
             },
             'backend': {
                 'mock_mode': False,
@@ -633,6 +634,85 @@ class SettingsManager:
             'last_updated': self.get_setting('metadata.last_updated'),
             'version': self.get_setting('metadata.version')
         }
+
+    def get_favorite_servers(self) -> List[str]:
+        """
+        Get list of favorite server IP addresses.
+
+        Returns:
+            List of IP addresses marked as favorites
+        """
+        return self.get_setting('data.favorite_servers', [])
+
+    def is_favorite_server(self, ip: Optional[str]) -> bool:
+        """
+        Check if server IP is marked as favorite.
+
+        Args:
+            ip: IP address to check (None/empty strings return False)
+
+        Returns:
+            True if IP is in favorites list, False otherwise
+        """
+        if not ip or not ip.strip():
+            return False
+
+        favorites = self.get_favorite_servers()
+        return ip.strip() in favorites
+
+    def add_favorite_server(self, ip: Optional[str]) -> None:
+        """
+        Add server IP to favorites list.
+
+        Args:
+            ip: IP address to add (None/empty strings are ignored)
+        """
+        if not ip or not ip.strip():
+            return
+
+        ip = ip.strip()
+        favorites = self.get_favorite_servers()
+
+        if ip not in favorites:
+            favorites.append(ip)
+            self.set_setting('data.favorite_servers', favorites)
+
+    def remove_favorite_server(self, ip: Optional[str]) -> None:
+        """
+        Remove server IP from favorites list.
+
+        Args:
+            ip: IP address to remove (None/empty strings are ignored)
+        """
+        if not ip or not ip.strip():
+            return
+
+        ip = ip.strip()
+        favorites = self.get_favorite_servers()
+
+        if ip in favorites:
+            favorites.remove(ip)
+            self.set_setting('data.favorite_servers', favorites)
+
+    def toggle_favorite_server(self, ip: Optional[str]) -> bool:
+        """
+        Toggle favorite status of server IP.
+
+        Args:
+            ip: IP address to toggle (None/empty strings return False)
+
+        Returns:
+            True if IP is now a favorite, False otherwise
+        """
+        if not ip or not ip.strip():
+            return False
+
+        if self.is_favorite_server(ip):
+            self.remove_favorite_server(ip)
+            return False
+        else:
+            self.add_favorite_server(ip)
+            return True
 
 
 # Global settings manager instance

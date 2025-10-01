@@ -51,20 +51,25 @@ class ServerListWindow:
     capabilities for team collaboration workflows.
     """
     
-    def __init__(self, parent: tk.Widget, db_reader: DatabaseReader, 
-                 window_data: Dict[str, Any] = None):
+    def __init__(self, parent: tk.Widget, db_reader: DatabaseReader,
+                 window_data: Dict[str, Any] = None, settings_manager = None):
         """
         Initialize server list browser window.
-        
+
         Args:
             parent: Parent widget
             db_reader: Database access instance
             window_data: Optional data for filtering/focus
+            settings_manager: Optional settings manager for favorites functionality
         """
         self.parent = parent
         self.db_reader = db_reader
         self.theme = get_theme()
         self.window_data = window_data or {}
+        self.settings_manager = settings_manager
+
+        # Favorites functionality
+        self.favorites_only = tk.BooleanVar()
         
         # Window and UI components
         self.window = None
@@ -96,7 +101,7 @@ class ServerListWindow:
         self.show_all_button = None
         
         # Date filtering state
-        self.filter_recent = window_data.get("filter_recent", False)
+        self.filter_recent = self.window_data.get("filter_recent", False)
         self.last_scan_time = None
         
         # Data management
@@ -228,6 +233,19 @@ class ServerListWindow:
         )
         self.theme.apply_to_widget(clear_button, "button_secondary")
         clear_button.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Favorites only filter checkbox
+        self.favorites_checkbox = tk.Checkbutton(
+            search_frame,
+            text="Favorites only",
+            variable=self.favorites_only,
+            command=self._apply_filters
+        )
+        # Disable if no settings manager available
+        if not self.settings_manager:
+            self.favorites_checkbox.configure(state="disabled")
+        self.theme.apply_to_widget(self.favorites_checkbox, "checkbox")
+        self.favorites_checkbox.pack(side=tk.LEFT, padx=(0, 10))
         
         # Show all results toggle (if we started with filtered results)
         if self.filter_recent:
@@ -298,8 +316,9 @@ class ServerListWindow:
         self.theme.apply_to_widget(self.table_frame, "main_window")
         self.table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Define columns - updated for enhanced share tracking
+        # Define columns - updated for enhanced share tracking with favorites
         columns = (
+            "favorite",
             "IP Address",
             "Shares",
             "Accessible",
@@ -315,8 +334,9 @@ class ServerListWindow:
             selectmode="extended"
         )
         
-        # Configure columns - optimized dimensions for enhanced share tracking
+        # Configure columns - optimized dimensions for enhanced share tracking with favorites
         self.tree.column("#0", width=0, stretch=False)  # Hide tree column
+        self.tree.column("favorite", width=40, anchor="center")  # Favorite star column
         self.tree.column("IP Address", width=160, anchor="w")
         self.tree.column("Shares", width=100, anchor="center")
         self.tree.column("Accessible", width=900, anchor="w")  # Extra wide for extensive share lists
@@ -325,7 +345,10 @@ class ServerListWindow:
         
         # Configure headings
         for col in columns:
-            self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
+            if col == "favorite":
+                self.tree.heading(col, text="★", command=lambda c=col: self._sort_by_column(c))
+            else:
+                self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
         
         # Add scrollbars
         self.scrollbar_v = ttk.Scrollbar(
@@ -402,6 +425,7 @@ class ServerListWindow:
         # Table selection events
         self.tree.bind("<<TreeviewSelect>>", self._on_selection_changed)
         self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<Button-1>", self._on_treeview_click)
         
         # Window close event
         self.window.protocol("WM_DELETE_WINDOW", self._close_window)
@@ -518,6 +542,11 @@ class ServerListWindow:
         if self.shares_filter.get():
             filtered = [server for server in filtered if server.get("accessible_shares", 0) > 0]
 
+        # Apply favorites filter
+        if self.favorites_only.get() and self.settings_manager:
+            favorite_ips = self.settings_manager.get_favorite_servers()
+            filtered = [server for server in filtered if server.get("ip_address") in favorite_ips]
+
         self.filtered_servers = filtered
         self._update_table_display()
     
@@ -601,12 +630,18 @@ class ServerListWindow:
             if accessible_shares:
                 # Remove any spaces after commas and ensure clean formatting
                 accessible_shares = ",".join([share.strip() for share in accessible_shares.split(",") if share.strip()])
-            
-            # Insert row with new column structure
+
+            # Determine favorite star
+            if self.settings_manager and self.settings_manager.is_favorite_server(ip_addr):
+                star = "★"
+            else:
+                star = "☆"
+
+            # Insert row with new column structure including favorite star
             item_id = self.tree.insert(
                 "",
                 "end",
-                values=(ip_addr, shares_count, accessible_shares, last_seen, scan_count)
+                values=(star, ip_addr, shares_count, accessible_shares, last_seen, scan_count)
             )
             
             # Add visual indicators for shares count
@@ -623,6 +658,10 @@ class ServerListWindow:
     
     def _sort_by_column(self, column: str) -> None:
         """Sort table by specified column."""
+        # Ignore clicks on favorite column - no meaningful sort order
+        if column == "favorite":
+            return
+
         # Get current data with sort key
         data_with_keys = []
         
@@ -688,8 +727,8 @@ class ServerListWindow:
         if not values:
             messagebox.showerror("Error", "Unable to retrieve server data.")
             return
-        
-        ip_address = values[0]
+
+        ip_address = values[1]  # IP Address is now at index 1 due to favorite column
         
         # Same data lookup as working "View Details" button
         server_data = next(
@@ -704,7 +743,35 @@ class ServerListWindow:
         
         # Same popup method as "View Details" button - ensures identical behavior
         self._show_server_detail_popup(server_data)
-    
+
+    def _on_treeview_click(self, event) -> None:
+        """Handle treeview clicks, specifically for favorite column toggles."""
+        column = self.tree.identify_column(event.x)
+        item = self.tree.identify_row(event.y)
+
+        # Only handle favorite column clicks (#1, since #0 hidden)
+        if column == '#1' and item and self.settings_manager:
+            values = self.tree.item(item)["values"]
+            if not values or len(values) < 2:
+                return
+
+            ip_address = values[1]  # IP is at index 1
+
+            # Toggle favorite status
+            is_now_favorite = self.settings_manager.toggle_favorite_server(ip_address)
+            star = "★" if is_now_favorite else "☆"
+            self.tree.set(item, "favorite", star)
+
+            # Re-apply filters if favorites-only is enabled
+            if self.favorites_only.get():
+                self._apply_filters()
+
+            # Maintain focus and selection for keyboard navigation
+            self.tree.selection_set(item)
+            self.tree.focus(item)
+
+            return "break"  # Only consume event when we actually toggled
+
     def _select_all(self, event=None) -> None:
         """Select all items in table."""
         self.tree.selection_set(self.tree.get_children())
@@ -724,7 +791,7 @@ class ServerListWindow:
         # Get server data - updated for new column structure
         item = selected_items[0]
         values = self.tree.item(item)["values"]
-        ip_address = values[0]  # IP Address is still first column
+        ip_address = values[1]  # IP Address is now at index 1 due to favorite column
         
         # Find server in data
         server_data = next(
@@ -917,7 +984,7 @@ class ServerListWindow:
         selected_ips = []
         for item in selected_items:
             values = self.tree.item(item)["values"]
-            selected_ips.append(values[0])  # IP address
+            selected_ips.append(values[1])  # IP address is now at index 1 due to favorite column
         
         selected_servers = [
             server for server in self.filtered_servers
@@ -1118,14 +1185,15 @@ class ServerListWindow:
         self.window.destroy()
 
 
-def open_server_list_window(parent: tk.Widget, db_reader: DatabaseReader, 
-                           window_data: Dict[str, Any] = None) -> None:
+def open_server_list_window(parent: tk.Widget, db_reader: DatabaseReader,
+                           window_data: Dict[str, Any] = None, settings_manager = None) -> None:
     """
     Open server list browser window.
-    
+
     Args:
         parent: Parent widget
         db_reader: Database reader instance
         window_data: Optional data for window initialization
+        settings_manager: Optional settings manager for favorites functionality
     """
-    ServerListWindow(parent, db_reader, window_data)
+    ServerListWindow(parent, db_reader, window_data, settings_manager)

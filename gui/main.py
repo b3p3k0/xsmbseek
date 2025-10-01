@@ -397,7 +397,7 @@ class SMBSeekGUI:
         try:
             if window_type == "server_list":
                 # Open server list browser window
-                open_server_list_window(self.root, self.db_reader, data)
+                open_server_list_window(self.root, self.db_reader, data, self.settings_manager)
             elif window_type == "config_editor":
                 # Open configuration editor window
                 config_path = self.config_path or "../backend/conf/config.json"
@@ -414,7 +414,7 @@ class SMBSeekGUI:
                 open_data_import_dialog(self.root, self.db_reader)
             elif window_type == "recent_activity":
                 # Open server list window with recent discoveries filter
-                server_window = ServerListWindow(self.root, self.db_reader)
+                server_window = ServerListWindow(self.root, self.db_reader, None, self.settings_manager)
                 server_window.apply_recent_discoveries_filter()
             else:
                 # For other window types, show placeholder message

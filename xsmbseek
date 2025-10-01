@@ -663,7 +663,7 @@ class XSMBSeekGUI:
         """
         try:
             if window_type == "server_list":
-                open_server_list_window(self.root, self.db_reader, data)
+                open_server_list_window(self.root, self.db_reader, data, self.settings_manager)
             elif window_type == "config_editor":
                 # Open SMBSeek configuration editor
                 config_path = self.config.get_smbseek_path() / "conf" / "config.json"
