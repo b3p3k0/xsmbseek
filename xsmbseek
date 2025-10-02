@@ -843,10 +843,16 @@ def main():
     parser.add_argument(
         "--database-path",
         type=str,
-        metavar="PATH", 
+        metavar="PATH",
         help="Path to database file (overrides config)"
     )
-    
+
+    parser.add_argument(
+        "--debug-cli-subprocess",
+        action="store_true",
+        help="Enable debug output for CLI subprocess commands"
+    )
+
     parser.add_argument(
         "--version",
         action="version",
@@ -854,7 +860,11 @@ def main():
     )
     
     args = parser.parse_args()
-    
+
+    # Set debug environment variable if requested
+    if args.debug_cli_subprocess:
+        os.environ["XSMBSEEK_DEBUG_SUBPROCESS"] = "1"
+
     try:
         app = XSMBSeekGUI(
             mock_mode=args.mock,

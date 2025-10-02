@@ -240,7 +240,11 @@ class BackendInterface:
         # Ensure script path is string (currently Path object)
         script_path = str(self.cli_script)
 
-        return [interpreter, script_path, *args]
+        command_list = [interpreter, script_path, *args]
+        debug_enabled = os.getenv("XSMBSEEK_DEBUG_SUBPROCESS")
+        if debug_enabled:
+            print(f"DEBUG: CLI command -> interpreter={interpreter} cmd={command_list}")  # TODO: remove debug logging
+        return command_list
 
     def enable_mock_mode(self, mock_data_path: Optional[str] = None) -> None:
         """
@@ -766,6 +770,11 @@ class BackendInterface:
             
             # Parse final results
             full_output = "\n".join(output_lines)
+            debug_enabled = os.getenv("XSMBSEEK_DEBUG_SUBPROCESS")
+            if debug_enabled:
+                print("DEBUG: CLI output start")  # TODO: remove debug logging
+                print(full_output)
+                print("DEBUG: CLI output end")  # TODO: remove debug logging
             results = self._parse_final_results(full_output)
             
             self.current_operation["status"] = "completed" if returncode == 0 else "failed"
