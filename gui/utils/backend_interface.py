@@ -9,6 +9,7 @@ complete separation between GUI and backend teams' code.
 """
 
 import subprocess
+import sys
 import threading
 import queue
 import json
@@ -216,7 +217,31 @@ class BackendInterface:
                 f"Backend CLI not executable: {self.cli_script}. "
                 f"Run: chmod +x {self.cli_script}"
             )
-    
+
+    def _build_cli_command(self, *args) -> List[str]:
+        """
+        Build CLI command with proper Python interpreter.
+
+        Uses the same Python interpreter that launched the GUI to ensure
+        subprocess commands inherit the correct environment and dependencies.
+
+        Args:
+            *args: CLI arguments to pass to SMBSeek script
+
+        Returns:
+            Command list with interpreter, script path, and arguments
+        """
+        # Determine Python interpreter (same as GUI for environment consistency)
+        interpreter = sys.executable
+        if not interpreter:
+            # Fallback chain for robustness
+            interpreter = 'python3'  # Unix/Linux standard
+
+        # Ensure script path is string (currently Path object)
+        script_path = str(self.cli_script)
+
+        return [interpreter, script_path, *args]
+
     def enable_mock_mode(self, mock_data_path: Optional[str] = None) -> None:
         """
         Enable mock mode for testing without real backend calls.
@@ -470,12 +495,11 @@ class BackendInterface:
             return self._mock_scan_operation(countries, progress_callback)
         
         countries_str = ",".join(countries)
-        cmd = [
-            str(self.cli_script),
+        cmd = self._build_cli_command(
             "run",
             "--country", countries_str,
             "--verbose"  # For detailed progress parsing
-        ]
+        )
         
         # Add recent filtering if enabled (default behavior)
         if use_recent_filtering:
@@ -501,12 +525,11 @@ class BackendInterface:
             return self._mock_discover_operation(countries, progress_callback)
         
         countries_str = ",".join(countries)
-        cmd = [
-            str(self.cli_script),
+        cmd = self._build_cli_command(
             "discover",
             "--country", countries_str,
             "--verbose"
-        ]
+        )
         
         return self._execute_with_progress(cmd, progress_callback)
     
@@ -535,12 +558,11 @@ class BackendInterface:
         # Convert days to hours for CLI parameter (backend expects hours)
         recent_hours = recent_days * 24
         
-        cmd = [
-            str(self.cli_script),
+        cmd = self._build_cli_command(
             "access",
             "--recent", str(recent_hours),
             "--verbose"
-        ]
+        )
         
         return self._execute_with_progress(cmd, progress_callback)
     
@@ -563,12 +585,11 @@ class BackendInterface:
             raise ValueError("Server list cannot be empty")
         
         servers_str = ",".join(ip_list)
-        cmd = [
-            str(self.cli_script),
+        cmd = self._build_cli_command(
             "access",
             "--servers", servers_str,
             "--verbose"
-        ]
+        )
         
         return self._execute_with_progress(cmd, progress_callback)
     
@@ -591,12 +612,11 @@ class BackendInterface:
         try:
             # Query database for recent scan activity
             recent_hours = recent_days * 24
-            cmd = [
-                str(self.cli_script),
+            cmd = self._build_cli_command(
                 "db", "query",
                 "--recent", str(recent_hours),
                 "--count-only"
-            ]
+            )
             
             result = subprocess.run(
                 cmd,
@@ -642,7 +662,7 @@ class BackendInterface:
                 }
             }
         
-        cmd = [str(self.cli_script), "db", "query", "--summary"]
+        cmd = self._build_cli_command("db", "query", "--summary")
         
         try:
             result = subprocess.run(
@@ -1597,7 +1617,7 @@ class BackendInterface:
         
         try:
             result = subprocess.run(
-                [str(self.cli_script), "--help"],
+                self._build_cli_command("--help"),
                 cwd=self.backend_path,
                 capture_output=True,
                 timeout=10
@@ -1618,7 +1638,7 @@ class BackendInterface:
         
         try:
             result = subprocess.run(
-                [str(self.cli_script), "--version"],
+                self._build_cli_command("--version"),
                 cwd=self.backend_path,
                 capture_output=True,
                 text=True,

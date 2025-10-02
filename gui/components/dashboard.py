@@ -27,6 +27,7 @@ from style import get_theme, apply_theme_to_window
 from scan_manager import get_scan_manager
 from scan_dialog import show_scan_dialog
 from scan_results_dialog import show_scan_results_dialog
+from profile_manager_dialog import show_profile_manager
 
 
 class DashboardWidget:
@@ -152,25 +153,25 @@ class DashboardWidget:
         self._refresh_dashboard_data()
     
     def _build_header_section(self) -> None:
-        """Build header with title and quick actions."""
+        """Build responsive two-line header with title and action buttons."""
         header_frame = tk.Frame(self.main_frame)
         self.theme.apply_to_widget(header_frame, "main_window")
         header_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # Title
+
+        # Line 1: Title only
         title_label = self.theme.create_styled_label(
-            header_frame, 
+            header_frame,
             "SMBSeek Security Toolkit",
             "title"
         )
-        title_label.pack(side=tk.LEFT)
-        
-        # Quick action buttons
+        title_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Line 2: Action buttons with natural sizing
         actions_frame = tk.Frame(header_frame)
         self.theme.apply_to_widget(actions_frame, "main_window")
-        actions_frame.pack(side=tk.RIGHT)
-        
-        # Quick scan button - state managed
+        actions_frame.pack(anchor=tk.W)
+
+        # Start Scan button (preserve state management)
         self.scan_button = tk.Button(
             actions_frame,
             text="🔍 Start Scan",
@@ -179,7 +180,7 @@ class DashboardWidget:
         self.theme.apply_to_widget(self.scan_button, "button_primary")
         self.scan_button.pack(side=tk.LEFT, padx=(0, 5))
 
-        # Servers button
+        # Servers button (existing functionality)
         servers_button = tk.Button(
             actions_frame,
             text="📋 Servers",
@@ -188,14 +189,23 @@ class DashboardWidget:
         self.theme.apply_to_widget(servers_button, "button_secondary")
         servers_button.pack(side=tk.LEFT, padx=(0, 5))
 
-        # Settings button
+        # NEW: Profiles button
+        profiles_button = tk.Button(
+            actions_frame,
+            text="🗂 Profiles",
+            command=self._open_profile_manager
+        )
+        self.theme.apply_to_widget(profiles_button, "button_secondary")
+        profiles_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        # Config button (existing functionality)
         config_button = tk.Button(
             actions_frame,
             text="⚙ Config",
             command=self._open_config_editor
         )
         self.theme.apply_to_widget(config_button, "button_secondary")
-        config_button.pack(side=tk.LEFT, padx=(0, 5))
+        config_button.pack(side=tk.LEFT)
         
     
     def _build_status_section(self) -> None:
@@ -455,7 +465,8 @@ class DashboardWidget:
                 return  # External scan detected, don't proceed
             
             # Get backend path for external SMBSeek installation
-            backend_path = "./smbseek"
+            backend_path = getattr(self.backend_interface, "backend_path", "./smbseek")
+            backend_path = str(backend_path)
             
             # Start scan via scan manager
             success = self.scan_manager.start_scan(
@@ -673,6 +684,25 @@ class DashboardWidget:
         """Open application configuration dialog."""
         if self.drill_down_callback:
             self.drill_down_callback("app_config", {})
+
+    def _open_profile_manager(self) -> None:
+        """Open profile manager dialog with comprehensive error handling."""
+        try:
+            result = show_profile_manager(self.parent, self.config_path)
+
+            # Handle result messaging
+            if result:
+                if result.get("success") and result.get("message"):
+                    if "loaded" in result["message"].lower():
+                        messagebox.showinfo("Profile Manager", result["message"])
+                    else:
+                        # Status messages (backup info, save confirmations)
+                        print(f"Profile Manager: {result['message']}")
+                elif not result.get("success"):
+                    messagebox.showwarning("Profile Manager", result.get("message", "Operation failed"))
+
+        except Exception as e:
+            messagebox.showerror("Profile Manager Error", f"Failed to open profile manager: {e}")
     
     
     def _open_drill_down(self, window_type: str) -> None:
