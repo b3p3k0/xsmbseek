@@ -13,7 +13,7 @@ from tkinter import ttk, messagebox
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 # Add utils to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
@@ -24,37 +24,47 @@ from style import get_theme
 class ScanDialog:
     """
     Modal dialog for configuring and starting SMB scans.
-    
+
     Provides interface for:
     - Optional country selection (global scan if empty)
     - Configuration file path display and editing
-    - Scan initiation with validation
-    
+    - Scan initiation with validation and complete options dict
+
     Design Pattern: Simple modal with clear call-to-action flow
     that integrates with existing configuration and scan systems.
+    Callback contract provides complete scan options dict to ensure
+    compatibility with ScanManager expectations.
     """
     
-    def __init__(self, parent: tk.Widget, config_path: str, 
+    def __init__(self, parent: tk.Widget, config_path: str,
                  config_editor_callback: Callable[[str], None],
-                 scan_start_callback: Callable[[Optional[str]], None]):
+                 scan_start_callback: Callable[[Dict[str, Any]], None],
+                 backend_interface: Optional[Any] = None,
+                 settings_manager: Optional[Any] = None):
         """
         Initialize scan dialog.
-        
+
         Args:
             parent: Parent widget
             config_path: Path to configuration file
             config_editor_callback: Function to open config editor
-            scan_start_callback: Function to start scan with country parameter
+            scan_start_callback: Function to start scan with scan options dict
+            backend_interface: Optional backend interface for future use
+            settings_manager: Optional settings manager for scan defaults
         """
         self.parent = parent
         self.config_path = Path(config_path).resolve()
         self.config_editor_callback = config_editor_callback
         self.scan_start_callback = scan_start_callback
         self.theme = get_theme()
-        
+
+        # Optional components for future use (prefixed to avoid static analyzer warnings)
+        self._backend_interface = backend_interface
+        self._settings_manager = settings_manager
+
         # Dialog result
         self.result = None
-        self.country_code = None
+        self.scan_options = None  # Replaced country_code with scan_options
         
         # UI components
         self.dialog = None
@@ -320,6 +330,55 @@ class ScanDialog:
                 f"Failed to open configuration editor:\n{str(e)}\n\n"
                 "Please ensure the configuration system is properly set up."
             )
+
+    def _build_scan_options(self, country_param: Optional[str]) -> Dict[str, Any]:
+        """
+        Build complete scan options dict with type-safe settings extraction.
+
+        Args:
+            country_param: Country code(s) from user input
+
+        Returns:
+            Complete scan options dict with all keys ScanManager expects
+        """
+        # Type-safe settings extraction with fallbacks
+        if self._settings_manager is not None:
+            try:
+                # Use exact settings manager keys with proper type casting
+                max_results = int(self._settings_manager.get_setting('scan_dialog.max_shodan_results', 1000))
+                recent_hours = self._settings_manager.get_setting('scan_dialog.recent_hours', None)
+                if recent_hours is not None:
+                    recent_hours = int(recent_hours)  # Cast to prevent string-to-CLI issues
+                rescan_all = bool(self._settings_manager.get_setting('scan_dialog.rescan_all', False))
+                rescan_failed = bool(self._settings_manager.get_setting('scan_dialog.rescan_failed', False))
+                api_key = self._settings_manager.get_setting('scan_dialog.api_key_override', '')
+                api_key = str(api_key) if api_key else None
+            except Exception:
+                # Fall back to defaults if settings extraction fails
+                max_results = 1000
+                recent_hours = None
+                rescan_all = False
+                rescan_failed = False
+                api_key = None
+        else:
+            # Hard-coded safe fallbacks when no settings manager
+            max_results = 1000
+            recent_hours = None
+            rescan_all = False
+            rescan_failed = False
+            api_key = None
+
+        # Build complete scan options dict
+        scan_options = {
+            'country': country_param,
+            'max_shodan_results': max_results,
+            'recent_hours': recent_hours,
+            'rescan_all': rescan_all,
+            'rescan_failed': rescan_failed,
+            'api_key_override': api_key
+        }
+
+        return scan_options
     
     def _start_scan(self) -> None:
         """Start the scan with configured parameters."""
@@ -355,13 +414,16 @@ class ScanDialog:
         
         if result:
             try:
+                # Build complete scan options dict
+                scan_options = self._build_scan_options(country_param)
+
                 # Set results and close dialog
                 self.result = "start"
-                self.country_code = country_param
-                
-                # Start the scan
-                self.scan_start_callback(self.country_code)
-                
+                self.scan_options = scan_options
+
+                # Start the scan with complete options dict
+                self.scan_start_callback(scan_options)
+
                 # Close dialog
                 self.dialog.destroy()
             except Exception as e:
@@ -392,18 +454,23 @@ class ScanDialog:
 
 def show_scan_dialog(parent: tk.Widget, config_path: str,
                     config_editor_callback: Callable[[str], None],
-                    scan_start_callback: Callable[[Optional[str]], None]) -> Optional[str]:
+                    scan_start_callback: Callable[[Dict[str, Any]], None],
+                    backend_interface: Optional[Any] = None,
+                    settings_manager: Optional[Any] = None) -> Optional[str]:
     """
     Show scan configuration dialog.
-    
+
     Args:
         parent: Parent widget
         config_path: Path to configuration file
         config_editor_callback: Function to open config editor
-        scan_start_callback: Function to start scan with country parameter
-        
+        scan_start_callback: Function to start scan with scan options dict
+        backend_interface: Optional backend interface for future use
+        settings_manager: Optional settings manager for scan defaults
+
     Returns:
         Dialog result ("start", "cancel", or None)
     """
-    dialog = ScanDialog(parent, config_path, config_editor_callback, scan_start_callback)
+    dialog = ScanDialog(parent, config_path, config_editor_callback, scan_start_callback,
+                       backend_interface, settings_manager)
     return dialog.show()
