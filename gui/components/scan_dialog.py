@@ -70,7 +70,18 @@ class ScanDialog:
         self.dialog = None
         self.country_var = tk.StringVar()
         self.country_entry = None
-        
+
+        # Advanced options UI variables
+        self.max_results_var = tk.IntVar(value=1000)
+        self.recent_hours_var = tk.StringVar()  # Empty means None/default
+        self.rescan_all_var = tk.BooleanVar(value=False)
+        self.rescan_failed_var = tk.BooleanVar(value=False)
+        self.api_key_var = tk.StringVar()
+        self.show_advanced = tk.BooleanVar(value=False)
+
+        # Load initial values from settings if available
+        self._load_initial_values()
+
         self._create_dialog()
     
     def _create_dialog(self) -> None:
@@ -190,7 +201,201 @@ class ScanDialog:
             fg=self.theme.colors["text_secondary"]
         )
         example_label.pack(side=tk.LEFT)
-    
+
+        # Advanced Options Section
+        self._create_advanced_options(options_frame)
+
+    def _create_advanced_options(self, parent_frame: tk.Frame) -> None:
+        """Create collapsible advanced options section."""
+        # Advanced options toggle
+        toggle_frame = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(toggle_frame, "card")
+        toggle_frame.pack(fill=tk.X, padx=15, pady=(10, 0))
+
+        # Toggle button/checkbox for advanced options
+        self.advanced_toggle = tk.Checkbutton(
+            toggle_frame,
+            text="▶ Advanced Options",
+            variable=self.show_advanced,
+            command=self._toggle_advanced_options,
+            font=self.theme.fonts["body"]
+        )
+        self.theme.apply_to_widget(self.advanced_toggle, "checkbox")
+        self.advanced_toggle.pack(anchor="w", padx=5, pady=5)
+
+        # Advanced options container (initially hidden)
+        self.advanced_frame = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(self.advanced_frame, "card")
+
+        # Create advanced option components
+        self._create_max_results_option()
+        self._create_recent_hours_option()
+        self._create_rescan_options()
+        self._create_api_key_option()
+
+        # Initially hide advanced options
+        self._toggle_advanced_options()
+
+    def _toggle_advanced_options(self) -> None:
+        """Toggle visibility of advanced options section."""
+        if self.show_advanced.get():
+            self.advanced_frame.pack(fill=tk.X, padx=15, pady=(0, 10))
+            self.advanced_toggle.config(text="▼ Advanced Options")
+        else:
+            self.advanced_frame.pack_forget()
+            self.advanced_toggle.config(text="▶ Advanced Options")
+
+    def _create_max_results_option(self) -> None:
+        """Create max Shodan results option."""
+        max_results_frame = tk.Frame(self.advanced_frame)
+        self.theme.apply_to_widget(max_results_frame, "card")
+        max_results_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+
+        # Label
+        max_results_label = self.theme.create_styled_label(
+            max_results_frame,
+            "Max Shodan Results:",
+            "body"
+        )
+        max_results_label.pack(anchor="w")
+
+        # Input frame
+        input_frame = tk.Frame(max_results_frame)
+        self.theme.apply_to_widget(input_frame, "card")
+        input_frame.pack(fill=tk.X, pady=(5, 0))
+
+        # Entry field
+        self.max_results_entry = tk.Entry(
+            input_frame,
+            textvariable=self.max_results_var,
+            width=8,
+            font=self.theme.fonts["body"]
+        )
+        self.max_results_entry.pack(side=tk.LEFT)
+
+        # Description
+        desc_label = self.theme.create_styled_label(
+            input_frame,
+            "  (1-10000, default: 1000)",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        desc_label.pack(side=tk.LEFT)
+
+    def _create_recent_hours_option(self) -> None:
+        """Create recent hours filter option."""
+        recent_frame = tk.Frame(self.advanced_frame)
+        self.theme.apply_to_widget(recent_frame, "card")
+        recent_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        # Label
+        recent_label = self.theme.create_styled_label(
+            recent_frame,
+            "Recent Hours Filter:",
+            "body"
+        )
+        recent_label.pack(anchor="w")
+
+        # Input frame
+        input_frame = tk.Frame(recent_frame)
+        self.theme.apply_to_widget(input_frame, "card")
+        input_frame.pack(fill=tk.X, pady=(5, 0))
+
+        # Entry field
+        self.recent_hours_entry = tk.Entry(
+            input_frame,
+            textvariable=self.recent_hours_var,
+            width=8,
+            font=self.theme.fonts["body"]
+        )
+        self.recent_hours_entry.pack(side=tk.LEFT)
+
+        # Description
+        desc_label = self.theme.create_styled_label(
+            input_frame,
+            "  (hours, empty for default)",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        desc_label.pack(side=tk.LEFT)
+
+    def _create_rescan_options(self) -> None:
+        """Create rescan checkboxes."""
+        rescan_frame = tk.Frame(self.advanced_frame)
+        self.theme.apply_to_widget(rescan_frame, "card")
+        rescan_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        # Label
+        rescan_label = self.theme.create_styled_label(
+            rescan_frame,
+            "Rescan Options:",
+            "body"
+        )
+        rescan_label.pack(anchor="w")
+
+        # Checkboxes frame
+        checkboxes_frame = tk.Frame(rescan_frame)
+        self.theme.apply_to_widget(checkboxes_frame, "card")
+        checkboxes_frame.pack(fill=tk.X, pady=(5, 0))
+
+        # Rescan all checkbox
+        self.rescan_all_checkbox = tk.Checkbutton(
+            checkboxes_frame,
+            text="Rescan all existing hosts",
+            variable=self.rescan_all_var,
+            font=self.theme.fonts["small"]
+        )
+        self.theme.apply_to_widget(self.rescan_all_checkbox, "checkbox")
+        self.rescan_all_checkbox.pack(anchor="w", padx=5)
+
+        # Rescan failed checkbox
+        self.rescan_failed_checkbox = tk.Checkbutton(
+            checkboxes_frame,
+            text="Rescan previously failed hosts",
+            variable=self.rescan_failed_var,
+            font=self.theme.fonts["small"]
+        )
+        self.theme.apply_to_widget(self.rescan_failed_checkbox, "checkbox")
+        self.rescan_failed_checkbox.pack(anchor="w", padx=5)
+
+    def _create_api_key_option(self) -> None:
+        """Create API key override option."""
+        api_frame = tk.Frame(self.advanced_frame)
+        self.theme.apply_to_widget(api_frame, "card")
+        api_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
+
+        # Label
+        api_label = self.theme.create_styled_label(
+            api_frame,
+            "API Key Override:",
+            "body"
+        )
+        api_label.pack(anchor="w")
+
+        # Input frame
+        input_frame = tk.Frame(api_frame)
+        self.theme.apply_to_widget(input_frame, "card")
+        input_frame.pack(fill=tk.X, pady=(5, 0))
+
+        # Entry field
+        self.api_key_entry = tk.Entry(
+            input_frame,
+            textvariable=self.api_key_var,
+            width=40,
+            font=self.theme.fonts["body"],
+            show="*"  # Mask the API key
+        )
+        self.api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Description
+        desc_label = self.theme.create_styled_label(
+            input_frame,
+            "  (temporary override)",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        desc_label.pack(side=tk.LEFT, padx=(5, 0))
+
     def _create_config_section(self) -> None:
         """Create configuration file section."""
         config_frame = tk.Frame(self.dialog)
@@ -267,6 +472,10 @@ class ScanDialog:
         
         # Country input validation
         self.country_var.trace_add("write", self._validate_country_input)
+
+        # Advanced options validation
+        self.max_results_var.trace_add("write", self._validate_max_results)
+        self.recent_hours_var.trace_add("write", self._validate_recent_hours)
     
     def _focus_country_field(self) -> None:
         """Set focus to country input field."""
@@ -319,6 +528,37 @@ class ScanDialog:
         upper_input = country_input.upper()
         if upper_input != country_input:
             self.country_var.set(upper_input)
+
+    def _validate_max_results(self, *args) -> None:
+        """Validate max results input."""
+        try:
+            value = self.max_results_var.get()
+            if value < 1 or value > 10000:
+                # Reset to valid range
+                valid_value = max(1, min(10000, value))
+                self.max_results_var.set(valid_value)
+        except tk.TclError:
+            # Invalid integer, reset to default
+            self.max_results_var.set(1000)
+
+    def _validate_recent_hours(self, *args) -> None:
+        """Validate recent hours input."""
+        recent_text = self.recent_hours_var.get().strip()
+
+        # Allow empty (means default)
+        if not recent_text:
+            return
+
+        # Validate it's a positive integer
+        try:
+            value = int(recent_text)
+            if value <= 0:
+                # Clear invalid negative values
+                self.recent_hours_var.set("")
+        except ValueError:
+            # Remove non-numeric characters, keep only digits
+            cleaned = ''.join(c for c in recent_text if c.isdigit())
+            self.recent_hours_var.set(cleaned)
     
     def _open_config_editor(self) -> None:
         """Open configuration editor."""
@@ -341,32 +581,30 @@ class ScanDialog:
         Returns:
             Complete scan options dict with all keys ScanManager expects
         """
-        # Type-safe settings extraction with fallbacks
+        # Get values from UI (user's current selections)
+        max_results = self.max_results_var.get()
+
+        # Handle recent hours (empty string means None)
+        recent_hours_text = self.recent_hours_var.get().strip()
+        recent_hours = int(recent_hours_text) if recent_hours_text else None
+
+        rescan_all = self.rescan_all_var.get()
+        rescan_failed = self.rescan_failed_var.get()
+
+        # Handle API key (empty string means None)
+        api_key = self.api_key_var.get().strip()
+        api_key = api_key if api_key else None
+
+        # Save selections back to settings for next time
         if self._settings_manager is not None:
             try:
-                # Use exact settings manager keys with proper type casting
-                max_results = int(self._settings_manager.get_setting('scan_dialog.max_shodan_results', 1000))
-                recent_hours = self._settings_manager.get_setting('scan_dialog.recent_hours', None)
-                if recent_hours is not None:
-                    recent_hours = int(recent_hours)  # Cast to prevent string-to-CLI issues
-                rescan_all = bool(self._settings_manager.get_setting('scan_dialog.rescan_all', False))
-                rescan_failed = bool(self._settings_manager.get_setting('scan_dialog.rescan_failed', False))
-                api_key = self._settings_manager.get_setting('scan_dialog.api_key_override', '')
-                api_key = str(api_key) if api_key else None
+                self._settings_manager.set_setting('scan_dialog.max_shodan_results', max_results)
+                self._settings_manager.set_setting('scan_dialog.recent_hours', recent_hours)
+                self._settings_manager.set_setting('scan_dialog.rescan_all', rescan_all)
+                self._settings_manager.set_setting('scan_dialog.rescan_failed', rescan_failed)
+                self._settings_manager.set_setting('scan_dialog.api_key_override', api_key or '')
             except Exception:
-                # Fall back to defaults if settings extraction fails
-                max_results = 1000
-                recent_hours = None
-                rescan_all = False
-                rescan_failed = False
-                api_key = None
-        else:
-            # Hard-coded safe fallbacks when no settings manager
-            max_results = 1000
-            recent_hours = None
-            rescan_all = False
-            rescan_failed = False
-            api_key = None
+                pass  # Don't fail scan if settings save fails
 
         # Build complete scan options dict
         scan_options = {
@@ -379,7 +617,28 @@ class ScanDialog:
         }
 
         return scan_options
-    
+
+    def _load_initial_values(self) -> None:
+        """Load initial values from settings manager into UI variables."""
+        if self._settings_manager is not None:
+            try:
+                # Load saved settings into UI variables
+                max_results = int(self._settings_manager.get_setting('scan_dialog.max_shodan_results', 1000))
+                recent_hours = self._settings_manager.get_setting('scan_dialog.recent_hours', None)
+                rescan_all = bool(self._settings_manager.get_setting('scan_dialog.rescan_all', False))
+                rescan_failed = bool(self._settings_manager.get_setting('scan_dialog.rescan_failed', False))
+                api_key = str(self._settings_manager.get_setting('scan_dialog.api_key_override', ''))
+
+                # Set UI variables
+                self.max_results_var.set(max_results)
+                self.recent_hours_var.set(str(recent_hours) if recent_hours is not None else '')
+                self.rescan_all_var.set(rescan_all)
+                self.rescan_failed_var.set(rescan_failed)
+                self.api_key_var.set(api_key)
+            except Exception:
+                # Fall back to defaults if settings loading fails
+                pass
+
     def _start_scan(self) -> None:
         """Start the scan with configured parameters."""
         country_input = self.country_var.get().strip()

@@ -7,6 +7,29 @@
 
 ## Recent Development Session Notes
 
+### October 3, 2025 - Advanced Scan Options Implementation
+**Changes Made:**
+- **Restored Advanced Scan Options**: Re-implemented complete advanced options in scan dialog after they were lost during callback contract revision
+- **Progressive Disclosure UI**: Added collapsible "Advanced Options" section with clean UX pattern
+- **Settings Integration**: Full settings persistence for user preferences across sessions
+- **Type-Safe Implementation**: Robust validation and error handling for all input fields
+
+**Technical Implementation**:
+- **UI Variables**: Added `max_results_var`, `recent_hours_var`, `rescan_all_var`, `rescan_failed_var`, `api_key_var`, `show_advanced`
+- **Settings Flow**: UI → `_build_scan_options()` → settings manager → callback → ScanManager → backend CLI
+- **Validation Logic**: Real-time input validation with range checking and type coercion
+- **Collapsible Design**: Expandable advanced section maintains clean default view
+
+**Options Restored**:
+- **Max Shodan Results**: Entry field with 1-10000 validation (default: 1000)
+- **Recent Hours Filter**: Optional integer input for scan recency filtering
+- **Rescan Flags**: Checkboxes for `--rescan-all` and `--rescan-failed` CLI options
+- **API Key Override**: Masked entry field for temporary Shodan API key override
+
+**Downstream Integration**: Verified complete workflow from UI through ScanManager to backend CLI arguments. All options correctly propagate through the entire scan pipeline without breaking existing functionality.
+
+**Architecture Note**: Maintains the improved callback contract (dict-based) from previous fix while restoring full user control over scan parameters that were accidentally removed during TyperError resolution.
+
 ### September 5, 2025 - UI Cleanup and Focus Shift
 **Changes Made:**
 - **Removed GUI Reports Button**: Eliminated non-functional "📊 Reports" button from dashboard header
@@ -880,7 +903,7 @@ def register_parser(subparsers):
 
 #### 2. Command Line Argument Parsing Bug  
 **Issue**: Global flags (--verbose, --quiet, --no-colors) only worked in global position, not subcommand position  
-**Symptom**: `./smbseek.py run --verbose --country US` failed with "unrecognized arguments"  
+**Symptom**: `./smbseek.py --verbose --country US` failed with "unrecognized arguments"  
 **Root Cause**: Subcommand parsers didn't inherit common arguments  
 **Fix**: Created `add_common_arguments()` helper function and added to all subcommand parsers  
 **Lesson**: Consistent argument inheritance is critical for user experience
@@ -1030,7 +1053,7 @@ python3 tools/db_query.py --custom-query "SELECT * FROM smb_servers WHERE ip_add
 
 **User Experience Issue**: 
 ```bash
-$ ./smbseek.py run
+$ ./smbseek.py
 usage: smbseek run [-h] --country CODE [options...]
 smbseek run: error: the following arguments are required: --country
 ```
@@ -1150,8 +1173,8 @@ db.execute_query('UPDATE smb_servers SET scan_count = 1 WHERE scan_count = "scan
 ### Testing and Validation
 
 #### Behavior Verification
-1. **Default Behavior**: `./smbseek.py run` → Uses config.json countries
-2. **Explicit Override**: `./smbseek.py run --country US` → Uses specified country
+1. **Default Behavior**: `./smbseek.py` → Uses config.json countries
+2. **Explicit Override**: `./smbseek.py --country US` → Uses specified country
 3. **Global Fallback**: No countries in config → Global scan
 4. **Multiple Countries**: `--country US,GB,CA` → Scans all specified
 

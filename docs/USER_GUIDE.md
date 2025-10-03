@@ -52,7 +52,7 @@ Edit `conf/config.json`:
 ### 5. Run Your First Scan
 ```bash
 # New unified CLI (recommended)
-./smbseek.py run --country US
+./smbseek.py --country US
 
 # OR use the legacy tools (still supported)
 python3 tools/smb_scan.py -c US
@@ -174,10 +174,10 @@ source venv/bin/activate  # Linux/macOS
 # OR: venv\Scripts\activate  # Windows
 
 # Unified CLI (recommended) - uses default countries from config.json
-./smbseek.py run
+./smbseek.py
 
 # Or scan specific country
-./smbseek.py run --country US
+./smbseek.py --country US
 
 # Legacy approach (still supported)
 python3 tools/smb_scan.py -c US
@@ -186,11 +186,11 @@ python3 tools/smb_scan.py -c US
 ### Common Scan Commands
 ```bash
 # Unified CLI commands (recommended)
-./smbseek.py run                    # Uses default countries from config
-./smbseek.py run --country US       # Scan specific country
-./smbseek.py run --country US,GB,CA # Scan multiple countries
-./smbseek.py run --quiet            # Quiet mode (less output)
-./smbseek.py run --verbose          # Verbose mode (detailed information)
+./smbseek.py                    # Uses default countries from config
+./smbseek.py --country US       # Scan specific country
+./smbseek.py --country US,GB,CA # Scan multiple countries
+./smbseek.py --quiet            # Quiet mode (less output)
+./smbseek.py --verbose          # Verbose mode (detailed information)
 
 # Discovery only (without full workflow)
 ./smbseek.py discover               # Uses config defaults
@@ -385,7 +385,7 @@ python3 tools/db_maintenance.py --export
 ### Security Assessment Workflow
 ```bash
 # Unified CLI (recommended)
-1. ./smbseek.py run                    # Complete workflow
+1. ./smbseek.py                    # Complete workflow
 2. ./smbseek.py report --summary       # Review results
 3. ./smbseek.py report --countries     # Focus areas
 4. ./smbseek.py database --export      # Generate report
@@ -402,7 +402,7 @@ python3 tools/db_maintenance.py --export
 ### Educational/Research Workflow
 ```bash
 # Unified CLI (recommended)
-1. ./smbseek.py run --country US,GB,CA # Broad scan
+1. ./smbseek.py --country US,GB,CA # Broad scan
 2. ./smbseek.py report --all           # Explore data
 3. ./smbseek.py database --query       # Custom queries
 4. ./smbseek.py database --export      # Export findings
@@ -411,7 +411,7 @@ python3 tools/db_maintenance.py --export
 ### Monitoring Workflow
 ```bash
 # Unified CLI (recommended)
-1. ./smbseek.py run                    # Regular scans
+1. ./smbseek.py                    # Regular scans
 2. ./smbseek.py report --statistics    # Track changes
 3. ./smbseek.py database --maintenance # Database maintenance
 4. ./smbseek.py database --backup      # Backup data
@@ -427,8 +427,8 @@ SMBSeek uses a 3-tier system to determine which countries to scan:
 
 1. **Command Line Override** (highest priority)
    ```bash
-   ./smbseek.py run --country US        # Scan only United States
-   ./smbseek.py run --country US,GB,CA  # Scan multiple countries
+   ./smbseek.py --country US        # Scan only United States
+   ./smbseek.py --country US,GB,CA  # Scan multiple countries
    ```
 
 2. **Configuration File Defaults** (medium priority)
@@ -441,13 +441,13 @@ SMBSeek uses a 3-tier system to determine which countries to scan:
    }
    ```
    ```bash
-   ./smbseek.py run  # Uses US, GB, CA from config
+   ./smbseek.py  # Uses US, GB, CA from config
    ```
 
 3. **Global Scan Fallback** (lowest priority)
    ```bash
    # If no --country AND no countries in config.json
-   ./smbseek.py run  # Scans globally (no country filter)
+   ./smbseek.py  # Scans globally (no country filter)
    ```
 
 ### Country Code Reference
@@ -466,7 +466,7 @@ SMBSeek accepts **ISO 3166-1 alpha-2** country codes (two-letter codes):
 
 **Multiple Countries:**
 ```bash
-./smbseek.py run --country US,GB,CA,AU,DE  # Comma-separated
+./smbseek.py --country US,GB,CA,AU,DE  # Comma-separated
 ```
 
 **Note:** Shodan may return more servers for global scans but they may be less relevant to your specific needs. Country-specific scans are usually more targeted and manageable.
@@ -599,4 +599,57 @@ Use SMBSeek results to:
 
 ---
 
-**Ready to start exploring SMB security? Run your first scan and discover what's out there!**
+## 🖥️ GUI Frontend (xsmbseek)
+
+The xsmbseek GUI provides a user-friendly interface for SMBSeek with advanced scan configuration options.
+
+### Launching the GUI
+```bash
+# Basic GUI launch
+./xsmbseek
+
+# With specific SMBSeek installation path
+./xsmbseek --smbseek-path /path/to/smbseek
+
+# Mock mode for testing (no SMBSeek required)
+./xsmbseek --mock
+```
+
+### Advanced Scan Options
+
+The scan dialog provides both basic and advanced configuration options:
+
+#### Basic Options
+- **Country Code**: Specify countries to scan (e.g., US, GB, CA or US,GB,CA)
+- Leave blank for global scan
+
+#### Advanced Options (Expandable Section)
+Click "▶ Advanced Options" to access:
+
+- **Max Shodan Results**: Limit discovery results (1-10000, default: 1000)
+- **Recent Hours Filter**: Filter for recent scan data (hours, empty for default)
+- **Rescan Options**:
+  - ☐ Rescan all existing hosts (force rescan regardless of recent scans)
+  - ☐ Rescan previously failed hosts (retry hosts that failed before)
+- **API Key Override**: Temporary Shodan API key override (masked input)
+
+#### Settings Persistence
+- Advanced options are automatically saved and restored between sessions
+- User preferences persist across application restarts
+- Settings integrate with the main configuration system
+
+#### Validation and Error Handling
+- Real-time validation for numeric fields
+- Clear error messages for invalid inputs
+- Graceful fallback when settings are unavailable
+
+### GUI Integration
+The GUI seamlessly integrates with the SMBSeek backend:
+- All CLI options available through the interface
+- Real-time progress tracking and status updates
+- Complete database access and reporting
+- Configuration management with live editing
+
+---
+
+**Ready to start exploring SMB security? Use the CLI for automation or the GUI for interactive exploration!**
