@@ -259,8 +259,8 @@ class SMBSeekGUI:
         """Create and configure main application window."""
         self.root = tk.Tk()
         self.root.title("SMBSeek Security Toolkit")
-        self.root.geometry("800x425")
-        self.root.minsize(800, 425)
+        self.root.geometry("800x250")
+        self.root.minsize(800, 240)
         
         # Apply theme
         apply_theme_to_window(self.root)
@@ -275,7 +275,7 @@ class SMBSeekGUI:
         """
         Center the main window on screen using fixed dimensions.
         
-        Forces window to maintain intended 800x350 size instead of 
+        Forces window to maintain intended 800x250 size instead of
         auto-sizing based on content. This ensures consistent compact
         layout across different screen configurations.
         
@@ -285,7 +285,7 @@ class SMBSeekGUI:
         # Force our intended dimensions instead of querying auto-sized dimensions
         # This prevents tkinter from expanding the window based on content
         target_width = 800   # Intended width for dashboard
-        target_height = 425  # Intended height with progress bar space
+        target_height = 250  # Intended height with progress bar space
         
         # Calculate center position based on intended dimensions
         screen_width = self.root.winfo_screenwidth()
@@ -305,7 +305,7 @@ class SMBSeekGUI:
         Implements industry-standard UX behavior for window management.
         """
         min_width = 800
-        min_height = 425
+        min_height = 240
         
         # Get current geometry
         current_geometry = self.root.geometry()

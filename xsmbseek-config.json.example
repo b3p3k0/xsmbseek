@@ -6,7 +6,7 @@
   },
   "gui": {
     "theme": "default",
-    "window_geometry": "800x700",
+    "window_geometry": "800x250",
     "interface_mode": "simple",
     "last_used_config": null,
     "operation_timeout_seconds": 3600,
