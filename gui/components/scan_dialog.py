@@ -608,7 +608,7 @@ class ScanDialog:
                 pass
 
     def _start_scan(self) -> None:
-        """Start the scan with configured parameters."""
+        """Validate inputs and start the scan with configured parameters."""
         country_input = self.country_var.get().strip()
         
         # Parse and validate country codes
@@ -633,34 +633,27 @@ class ScanDialog:
             country_param = None
             scan_desc = "global (all countries)"
             
-        result = messagebox.askyesno(
-            "Start Scan",
-            f"Start SMB security scan for {scan_desc}?\n\n"
-            "This will discover SMB servers and test for accessible shares."
-        )
-        
-        if result:
-            try:
-                # Build complete scan options dict
-                scan_options = self._build_scan_options(country_param)
+        try:
+            # Build complete scan options dict
+            scan_options = self._build_scan_options(country_param)
 
-                # Set results and close dialog
-                self.result = "start"
-                self.scan_options = scan_options
+            # Set results and close dialog
+            self.result = "start"
+            self.scan_options = scan_options
 
-                # Start the scan with complete options dict
-                self.scan_start_callback(scan_options)
+            # Start the scan with complete options dict
+            self.scan_start_callback(scan_options)
 
-                # Close dialog
-                self.dialog.destroy()
-            except Exception as e:
-                # Handle scan start errors gracefully
-                messagebox.showerror(
-                    "Scan Start Error",
-                    f"Failed to start scan:\n{str(e)}\n\n"
-                    "Please check that the backend is properly configured and try again."
-                )
-                # Don't close dialog so user can try again
+            # Close dialog
+            self.dialog.destroy()
+        except Exception as e:
+            # Handle scan start errors gracefully
+            messagebox.showerror(
+                "Scan Start Error",
+                f"Failed to start scan:\n{str(e)}\n\n"
+                "Please check that the backend is properly configured and try again."
+            )
+            # Don't close dialog so user can try again
     
     def _cancel_scan(self) -> None:
         """Cancel scan and close dialog."""
