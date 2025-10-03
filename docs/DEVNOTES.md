@@ -7,18 +7,18 @@
 
 ## Recent Development Session Notes
 
-### October 3, 2025 - Advanced Scan Options Implementation
+### October 3, 2025 - Direct Scan Options Implementation
 **Changes Made:**
-- **Restored Advanced Scan Options**: Re-implemented complete advanced options in scan dialog after they were lost during callback contract revision
-- **Progressive Disclosure UI**: Added collapsible "Advanced Options" section with clean UX pattern
+- **Restored Complete Scan Options**: Re-implemented all advanced options in scan dialog with direct access interface
+- **Direct Access UI**: Removed progressive disclosure in favor of immediate visibility for all options
 - **Settings Integration**: Full settings persistence for user preferences across sessions
 - **Type-Safe Implementation**: Robust validation and error handling for all input fields
 
 **Technical Implementation**:
-- **UI Variables**: Added `max_results_var`, `recent_hours_var`, `rescan_all_var`, `rescan_failed_var`, `api_key_var`, `show_advanced`
+- **UI Variables**: Added `max_results_var`, `recent_hours_var`, `rescan_all_var`, `rescan_failed_var`, `api_key_var`
 - **Settings Flow**: UI → `_build_scan_options()` → settings manager → callback → ScanManager → backend CLI
 - **Validation Logic**: Real-time input validation with range checking and type coercion
-- **Collapsible Design**: Expandable advanced section maintains clean default view
+- **Direct Layout**: All options visible in main "Scan Parameters" section with consistent formatting
 
 **Options Restored**:
 - **Max Shodan Results**: Entry field with 1-10000 validation (default: 1000)

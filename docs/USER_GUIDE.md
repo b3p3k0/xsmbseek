@@ -617,15 +617,12 @@ The xsmbseek GUI provides a user-friendly interface for SMBSeek with advanced sc
 
 ### Advanced Scan Options
 
-The scan dialog provides both basic and advanced configuration options:
+The scan dialog provides comprehensive configuration options in a clean, direct interface:
 
-#### Basic Options
-- **Country Code**: Specify countries to scan (e.g., US, GB, CA or US,GB,CA)
-- Leave blank for global scan
+#### Scan Configuration Options
+All options are directly visible and immediately accessible:
 
-#### Advanced Options (Expandable Section)
-Click "▶ Advanced Options" to access:
-
+- **Country Code**: Specify countries to scan (e.g., US, GB, CA or US,GB,CA) - leave blank for global scan
 - **Max Shodan Results**: Limit discovery results (1-10000, default: 1000)
 - **Recent Hours Filter**: Filter for recent scan data (hours, empty for default)
 - **Rescan Options**:

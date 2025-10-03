@@ -77,7 +77,6 @@ class ScanDialog:
         self.rescan_all_var = tk.BooleanVar(value=False)
         self.rescan_failed_var = tk.BooleanVar(value=False)
         self.api_key_var = tk.StringVar()
-        self.show_advanced = tk.BooleanVar(value=False)
 
         # Load initial values from settings if available
         self._load_initial_values()
@@ -202,65 +201,34 @@ class ScanDialog:
         )
         example_label.pack(side=tk.LEFT)
 
-        # Advanced Options Section
-        self._create_advanced_options(options_frame)
+        # Max Shodan Results
+        self._create_max_results_option(options_frame)
 
-    def _create_advanced_options(self, parent_frame: tk.Frame) -> None:
-        """Create collapsible advanced options section."""
-        # Advanced options toggle
-        toggle_frame = tk.Frame(parent_frame)
-        self.theme.apply_to_widget(toggle_frame, "card")
-        toggle_frame.pack(fill=tk.X, padx=15, pady=(10, 0))
+        # Recent Hours Filter
+        self._create_recent_hours_option(options_frame)
 
-        # Toggle button/checkbox for advanced options
-        self.advanced_toggle = tk.Checkbutton(
-            toggle_frame,
-            text="▶ Advanced Options",
-            variable=self.show_advanced,
-            command=self._toggle_advanced_options,
-            font=self.theme.fonts["body"]
-        )
-        self.theme.apply_to_widget(self.advanced_toggle, "checkbox")
-        self.advanced_toggle.pack(anchor="w", padx=5, pady=5)
+        # Rescan Options
+        self._create_rescan_options(options_frame)
 
-        # Advanced options container (initially hidden)
-        self.advanced_frame = tk.Frame(parent_frame)
-        self.theme.apply_to_widget(self.advanced_frame, "card")
+        # API Key Override
+        self._create_api_key_option(options_frame)
 
-        # Create advanced option components
-        self._create_max_results_option()
-        self._create_recent_hours_option()
-        self._create_rescan_options()
-        self._create_api_key_option()
-
-        # Initially hide advanced options
-        self._toggle_advanced_options()
-
-    def _toggle_advanced_options(self) -> None:
-        """Toggle visibility of advanced options section."""
-        if self.show_advanced.get():
-            self.advanced_frame.pack(fill=tk.X, padx=15, pady=(0, 10))
-            self.advanced_toggle.config(text="▼ Advanced Options")
-        else:
-            self.advanced_frame.pack_forget()
-            self.advanced_toggle.config(text="▶ Advanced Options")
-
-    def _create_max_results_option(self) -> None:
+    def _create_max_results_option(self, parent_frame: tk.Frame) -> None:
         """Create max Shodan results option."""
-        max_results_frame = tk.Frame(self.advanced_frame)
-        self.theme.apply_to_widget(max_results_frame, "card")
-        max_results_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        max_results_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(max_results_container, "card")
+        max_results_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
         max_results_label = self.theme.create_styled_label(
-            max_results_frame,
+            max_results_container,
             "Max Shodan Results:",
             "body"
         )
         max_results_label.pack(anchor="w")
 
         # Input frame
-        input_frame = tk.Frame(max_results_frame)
+        input_frame = tk.Frame(max_results_container)
         self.theme.apply_to_widget(input_frame, "card")
         input_frame.pack(fill=tk.X, pady=(5, 0))
 
@@ -282,22 +250,22 @@ class ScanDialog:
         )
         desc_label.pack(side=tk.LEFT)
 
-    def _create_recent_hours_option(self) -> None:
+    def _create_recent_hours_option(self, parent_frame: tk.Frame) -> None:
         """Create recent hours filter option."""
-        recent_frame = tk.Frame(self.advanced_frame)
-        self.theme.apply_to_widget(recent_frame, "card")
-        recent_frame.pack(fill=tk.X, padx=10, pady=5)
+        recent_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(recent_container, "card")
+        recent_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
         recent_label = self.theme.create_styled_label(
-            recent_frame,
+            recent_container,
             "Recent Hours Filter:",
             "body"
         )
         recent_label.pack(anchor="w")
 
         # Input frame
-        input_frame = tk.Frame(recent_frame)
+        input_frame = tk.Frame(recent_container)
         self.theme.apply_to_widget(input_frame, "card")
         input_frame.pack(fill=tk.X, pady=(5, 0))
 
@@ -319,22 +287,22 @@ class ScanDialog:
         )
         desc_label.pack(side=tk.LEFT)
 
-    def _create_rescan_options(self) -> None:
+    def _create_rescan_options(self, parent_frame: tk.Frame) -> None:
         """Create rescan checkboxes."""
-        rescan_frame = tk.Frame(self.advanced_frame)
-        self.theme.apply_to_widget(rescan_frame, "card")
-        rescan_frame.pack(fill=tk.X, padx=10, pady=5)
+        rescan_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(rescan_container, "card")
+        rescan_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
         rescan_label = self.theme.create_styled_label(
-            rescan_frame,
+            rescan_container,
             "Rescan Options:",
             "body"
         )
         rescan_label.pack(anchor="w")
 
         # Checkboxes frame
-        checkboxes_frame = tk.Frame(rescan_frame)
+        checkboxes_frame = tk.Frame(rescan_container)
         self.theme.apply_to_widget(checkboxes_frame, "card")
         checkboxes_frame.pack(fill=tk.X, pady=(5, 0))
 
@@ -358,22 +326,22 @@ class ScanDialog:
         self.theme.apply_to_widget(self.rescan_failed_checkbox, "checkbox")
         self.rescan_failed_checkbox.pack(anchor="w", padx=5)
 
-    def _create_api_key_option(self) -> None:
+    def _create_api_key_option(self, parent_frame: tk.Frame) -> None:
         """Create API key override option."""
-        api_frame = tk.Frame(self.advanced_frame)
-        self.theme.apply_to_widget(api_frame, "card")
-        api_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
+        api_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(api_container, "card")
+        api_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
         api_label = self.theme.create_styled_label(
-            api_frame,
+            api_container,
             "API Key Override:",
             "body"
         )
         api_label.pack(anchor="w")
 
         # Input frame
-        input_frame = tk.Frame(api_frame)
+        input_frame = tk.Frame(api_container)
         self.theme.apply_to_widget(input_frame, "card")
         input_frame.pack(fill=tk.X, pady=(5, 0))
 
