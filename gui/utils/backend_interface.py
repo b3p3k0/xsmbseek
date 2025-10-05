@@ -16,6 +16,8 @@ import json
 import os
 import re
 import time
+import signal
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Callable, Tuple, Any
 from pathlib import Path
 
@@ -32,34 +34,42 @@ class BackendInterface:
     and user-friendly progress updates.
     """
     
-    def __init__(self, backend_path: str = "./smbseek"):
+    def __init__(self, backend_path: str = "./smbseek", mock_mode: bool = False):
         """
         Initialize backend interface.
-        
+
         Args:
             backend_path: Path to SMBSeek installation directory
-            
-        Design Decision: Default to ./smbseek for new structure, but allow 
+            mock_mode: Enable mock mode for testing without backend
+
+        Design Decision: Default to ./smbseek for new structure, but allow
         complete override for different deployment scenarios.
         """
         self.backend_path = Path(backend_path).resolve()
         self.cli_script = self.backend_path / "smbseek.py"
         self.config_path = self.backend_path / "conf" / "config.json"
         self.config_example_path = self.backend_path / "conf" / "config.json.example"
-        
-        # Ensure configuration file exists
-        self._ensure_config_exists()
+
+        # Mock mode for testing without backend
+        self.mock_mode = mock_mode
+
+        # Ensure configuration file exists (skip in mock mode)
+        if not self.mock_mode:
+            self._ensure_config_exists()
         
         # Progress tracking for long-running operations
         self.progress_queue = queue.Queue()
         self.current_operation = None
+
+        # Cancellation tracking for subprocess operations
+        self.active_process = None
+        self.active_output_thread = None
+        self.cancel_requested = False
         
         # Phase tracking with persistence for better progress accuracy
         self.last_known_phase = None
-        self.phase_progression = ['discovery', 'authentication', 'access_testing', 'collection', 'reporting']
+        self.phase_progression = ['discovery', 'authentication', 'access_testing']
         
-        # Mock mode for testing without backend
-        self.mock_mode = False
         # Use gui directory for mock data (relative to where GUI components are)
         self.mock_data_path = Path(__file__).parent.parent / "test_data" / "mock_responses"
         
@@ -70,11 +80,17 @@ class BackendInterface:
         # Recent filtering configuration - loaded from SMBSeek config
         self.default_recent_days = 90  # Default 90 days as per backend team recommendations
         
-        self._load_timeout_configuration()
-        self._load_workflow_configuration()
-        self._cleanup_startup_locks()
-        
-        self._validate_backend()
+        # Load configuration and validate backend (skip in mock mode)
+        if not self.mock_mode:
+            self._load_timeout_configuration()
+            self._load_workflow_configuration()
+            self._cleanup_startup_locks()
+            self._validate_backend()
+        else:
+            # Set mock defaults
+            self.default_timeout = None
+            self.enable_debug_timeouts = False
+            self.default_recent_days = 90
     
     def _ensure_config_exists(self) -> None:
         """
@@ -160,6 +176,28 @@ class BackendInterface:
             # Pattern: "None of the specified servers are authenticated"
             if "None of the specified servers are authenticated" in line_clean:
                 return f"SERVERS_NOT_AUTHENTICATED: {line_clean}"
+
+            # Missing dependency patterns (smbprotocol / pyspnego not installed)
+            missing_dependency_substrings = (
+                "SMB libraries not available",
+                "ModuleNotFoundError: No module named 'smbprotocol'",
+                'ModuleNotFoundError: No module named "smbprotocol"',
+                "ModuleNotFoundError: No module named 'pyspnego'",
+                'ModuleNotFoundError: No module named "pyspnego"',
+                "No module named 'smbprotocol'",
+                'No module named "smbprotocol"',
+                "No module named 'pyspnego'",
+                'No module named "pyspnego"'
+            )
+            if any(substring in line_clean for substring in missing_dependency_substrings):
+                friendly_message = (
+                    "SMBSeek backend is missing required SMB libraries (smbprotocol). "
+                    "This usually happens when the xsmbseek GUI runs outside the project "
+                    "virtual environment. Activate the venv (e.g., `source venv/bin/activate`) "
+                    "or install the dependencies with `pip install -r requirements.txt`.\n"
+                    f"Backend output: {line_clean}"
+                )
+                return f"DEPENDENCY_MISSING: {friendly_message}"
         
         # Look for common error patterns
         error_indicators = [
@@ -244,6 +282,31 @@ class BackendInterface:
         debug_enabled = os.getenv("XSMBSEEK_DEBUG_SUBPROCESS")
         if debug_enabled:
             print(f"DEBUG: CLI command -> interpreter={interpreter} cmd={command_list}")  # TODO: remove debug logging
+        return command_list
+
+    def _build_tool_command(self, script_name: str, *args) -> List[str]:
+        """
+        Build command for tools/ scripts with proper interpreter and path resolution.
+
+        Args:
+            script_name: Name of script in tools/ directory (e.g., "db_query.py")
+            *args: Arguments to pass to the tool script
+
+        Returns:
+            Command list with interpreter, tool script path, and arguments
+        """
+        # Determine Python interpreter (same as GUI for environment consistency)
+        interpreter = sys.executable
+        if not interpreter:
+            interpreter = 'python3'  # Unix/Linux standard
+
+        # Build cross-platform path to tool script
+        script_path = str(self.backend_path / "tools" / script_name)
+
+        command_list = [interpreter, script_path, *args]
+        debug_enabled = os.getenv("XSMBSEEK_DEBUG_SUBPROCESS")
+        if debug_enabled:
+            print(f"DEBUG: Tool command -> interpreter={interpreter} cmd={command_list}")  # TODO: remove debug logging
         return command_list
 
     def enable_mock_mode(self, mock_data_path: Optional[str] = None) -> None:
@@ -479,96 +542,114 @@ class BackendInterface:
         }
     
     def run_scan(self, countries: List[str], progress_callback: Optional[Callable] = None,
-                 use_recent_filtering: bool = True, recent_days: Optional[int] = None) -> Dict:
+                 use_recent_filtering: bool = True, recent_days: Optional[int] = None,
+                 additional_args: List[str] = None) -> Dict:
         """
         Execute complete SMBSeek scan workflow.
-        
+
         Args:
             countries: List of country codes to scan
             progress_callback: Function to call with progress updates
             use_recent_filtering: Whether to apply recent filtering (default True)
             recent_days: Days for recent filtering (None uses config default)
-            
+            additional_args: Additional CLI arguments to pass to the scan command
+
         Returns:
             Dictionary with scan results and statistics
-            
-        Design Decision: Updated to use recent filtering by default to prevent
-        duplicate scanning as recommended by backend team.
+
+        Implementation: Recent filtering is now controlled through configuration
+        overrides (workflow.access_recent_hours) instead of CLI --recent flag.
+        SMBSeek 3.x removed the --recent CLI option in favor of config-based control.
         """
         if self.mock_mode:
             return self._mock_scan_operation(countries, progress_callback)
-        
-        countries_str = ",".join(countries)
-        cmd = self._build_cli_command(
-            "run",
-            "--country", countries_str,
-            "--verbose"  # For detailed progress parsing
-        )
-        
-        # Add recent filtering if enabled (default behavior)
-        if use_recent_filtering:
-            if recent_days is None:
-                recent_days = self.default_recent_days
+
+        # Build base command with verbose flag
+        cmd = self._build_cli_command("--verbose")  # For detailed progress parsing
+
+        # Only append --country when countries list is truthy per SMBSeek 3.0 requirements
+        if countries:
+            countries_str = ",".join(countries)
+            cmd.extend(["--country", countries_str])
+
+        # Add any additional CLI arguments
+        if additional_args:
+            cmd.extend(additional_args)
+
+        # Handle recent filtering through config overrides instead of CLI flags
+        config_overrides = {}
+        if not use_recent_filtering:
+            # Disable recent filtering by setting access_recent_hours to 0
+            config_overrides['workflow'] = {'access_recent_hours': 0}
+        elif recent_days is not None:
+            # Apply custom recent filtering value
             recent_hours = recent_days * 24
-            cmd.extend(["--recent", str(recent_hours)])
-        
-        return self._execute_with_progress(cmd, progress_callback)
+            config_overrides['workflow'] = {'access_recent_hours': recent_hours}
+
+        # Execute with config overrides if needed
+        if config_overrides:
+            with self._temporary_config_override(config_overrides):
+                return self._execute_with_progress(cmd, progress_callback)
+        else:
+            # Use default config values (no override needed)
+            return self._execute_with_progress(cmd, progress_callback)
     
     def run_discover(self, countries: List[str], progress_callback: Optional[Callable] = None) -> Dict:
         """
-        Execute discovery-only operation.
-        
+        DEPRECATED: Discovery-only mode has been removed in SMBSeek 3.0.
+        This method now redirects to the unified scan workflow (no subcommands).
+        Will be removed in a future version.
+
         Args:
             countries: List of country codes to scan
             progress_callback: Function to call with progress updates
-            
+
         Returns:
-            Dictionary with discovery results
+            Dictionary with scan results (same as run_scan)
         """
-        if self.mock_mode:
-            return self._mock_discover_operation(countries, progress_callback)
-        
-        countries_str = ",".join(countries)
-        cmd = self._build_cli_command(
-            "discover",
-            "--country", countries_str,
-            "--verbose"
+        import warnings
+        warnings.warn(
+            "run_discover() is deprecated. Use run_scan() instead. "
+            "Discovery-only mode has been removed in SMBSeek 3.0.",
+            DeprecationWarning,
+            stacklevel=2
         )
-        
-        return self._execute_with_progress(cmd, progress_callback)
+        print("⚠️  DEPRECATED: run_discover() called - redirecting to unified workflow")
+        return self.run_scan(countries, progress_callback)
     
-    def run_access_verification(self, recent_days: Optional[int] = None, 
+    def run_access_verification(self, recent_days: Optional[int] = None,
                                progress_callback: Optional[Callable] = None) -> Dict:
         """
         Execute access verification operation with recent filtering.
-        
+
         Args:
             recent_days: Filter to hosts from last N days (None uses config default)
             progress_callback: Function to call with progress updates
-            
+
         Returns:
             Dictionary with access verification results
-            
-        Implementation: Uses --recent parameter to prevent duplicate scanning
-        as recommended by backend team to resolve performance issues.
+
+        Implementation: Recent filtering is now controlled through configuration
+        overrides (workflow.access_recent_hours) instead of CLI --recent flag.
+        SMBSeek 3.x removed the --recent CLI option in favor of config-based control.
         """
         if self.mock_mode:
             return self._mock_access_verification_operation(recent_days, progress_callback)
-        
+
         # Use configured default if not specified
         if recent_days is None:
             recent_days = self.default_recent_days
-        
-        # Convert days to hours for CLI parameter (backend expects hours)
+
+        # Convert days to hours for config override
         recent_hours = recent_days * 24
-        
-        cmd = self._build_cli_command(
-            "access",
-            "--recent", str(recent_hours),
-            "--verbose"
-        )
-        
-        return self._execute_with_progress(cmd, progress_callback)
+
+        # Build base command without --recent flag
+        cmd = self._build_cli_command("--verbose")
+
+        # Apply recent filtering through config override
+        config_overrides = {'workflow': {'access_recent_hours': recent_hours}}
+        with self._temporary_config_override(config_overrides):
+            return self._execute_with_progress(cmd, progress_callback)
     
     def run_access_on_servers(self, ip_list: List[str], 
                              progress_callback: Optional[Callable] = None) -> Dict:
@@ -590,7 +671,6 @@ class BackendInterface:
         
         servers_str = ",".join(ip_list)
         cmd = self._build_cli_command(
-            "access",
             "--servers", servers_str,
             "--verbose"
         )
@@ -600,24 +680,26 @@ class BackendInterface:
     def should_skip_recent_scan(self, recent_days: Optional[int] = None) -> bool:
         """
         Check if recent scan makes new scan redundant.
-        
+
         Args:
             recent_days: Days to check for recent activity (None uses config default)
-            
+
         Returns:
             True if recent scan exists and new scan should be skipped
-            
-        Implementation: Checks database for recent scan activity to avoid
-        unnecessary duplicate scanning as recommended by backend team.
+
+        Note: This method is currently unused and may be deprecated.
+        It uses db_query.py tool with --recent flag, which may differ from
+        the main SMBSeek CLI that removed --recent in 3.x. The main scan
+        methods now use config-based recent filtering instead.
         """
         if recent_days is None:
             recent_days = self.default_recent_days
             
         try:
-            # Query database for recent scan activity
+            # Query database for recent scan activity using tool script
             recent_hours = recent_days * 24
-            cmd = self._build_cli_command(
-                "db", "query",
+            cmd = self._build_tool_command(
+                "db_query.py",
                 "--recent", str(recent_hours),
                 "--count-only"
             )
@@ -666,7 +748,7 @@ class BackendInterface:
                 }
             }
         
-        cmd = self._build_cli_command("db", "query", "--summary")
+        cmd = self._build_tool_command("db_query.py", "--summary")
         
         try:
             result = subprocess.run(
@@ -730,16 +812,33 @@ class BackendInterface:
             else:
                 env['PYTHONPATH'] = str(self.backend_path)
             
-            process = subprocess.Popen(
-                cmd,
-                cwd=self.backend_path,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=0,  # Unbuffered for real-time output
-                universal_newlines=True,
-                env=env
-            )
+            # Platform-specific process group creation for proper cancellation
+            if sys.platform.startswith('win'):
+                # Windows: Create new process group to allow terminating children
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=self.backend_path,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=0,  # Unbuffered for real-time output
+                    universal_newlines=True,
+                    env=env,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            else:
+                # POSIX: Start new session to create process group
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=self.backend_path,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=0,  # Unbuffered for real-time output
+                    universal_newlines=True,
+                    env=env,
+                    start_new_session=True
+                )
             
             # Thread for reading output and parsing progress
             output_lines = []
@@ -748,7 +847,11 @@ class BackendInterface:
                 args=(process.stdout, output_lines, progress_callback)
             )
             progress_thread.start()
-            
+
+            # Track active process and thread for cancellation
+            self.active_process = process
+            self.active_output_thread = progress_thread
+
             # Wait for completion with configurable timeout
             operation_timeout = self._get_operation_timeout(timeout_override)
             
@@ -765,10 +868,19 @@ class BackendInterface:
                 timeout_duration = self._format_timeout_duration(operation_timeout)
                 cmd_str = " ".join(cmd[:3])  # First 3 command parts for context
                 raise TimeoutError(f"Operation '{cmd_str}...' timed out after {timeout_duration}")
-            
+
             progress_thread.join()
-            
-            # Parse final results
+
+            # Check for cancellation before processing results
+            if self.cancel_requested:
+                # Operation was cancelled - return cancellation result
+                return {
+                    "success": False,
+                    "cancelled": True,
+                    "error": "Scan cancelled by user"
+                }
+
+            # Parse final results for normal completion
             full_output = "\n".join(output_lines)
             debug_enabled = os.getenv("XSMBSEEK_DEBUG_SUBPROCESS")
             if debug_enabled:
@@ -776,14 +888,14 @@ class BackendInterface:
                 print(full_output)
                 print("DEBUG: CLI output end")  # TODO: remove debug logging
             results = self._parse_final_results(full_output)
-            
+
             self.current_operation["status"] = "completed" if returncode == 0 else "failed"
             self.current_operation["end_time"] = time.time()
-            
+
             if returncode != 0:
                 # Extract meaningful error message from output
                 error_details = self._extract_error_details(full_output, cmd)
-                
+
                 # Handle specific error cases with automatic recovery
                 if error_details.startswith("RECENT_HOSTS_ERROR:"):
                     # No recent hosts found - attempt automatic discovery as fallback
@@ -791,16 +903,32 @@ class BackendInterface:
                 elif error_details.startswith("SERVERS_NOT_AUTHENTICATED:"):
                     # Specified servers not authenticated - suggest discovery
                     return self._handle_servers_not_authenticated_error(cmd, error_details)
+                elif error_details.startswith("DEPENDENCY_MISSING:"):
+                    _, _, friendly_message = error_details.partition(":")
+                    raise RuntimeError(friendly_message.strip())
                 else:
                     # Regular error - no automatic recovery
                     raise subprocess.CalledProcessError(returncode, cmd, error_details)
-            
+
             return results
-            
+
         except Exception as e:
             self.current_operation["status"] = "failed"
             self.current_operation["error"] = str(e)
             raise
+        finally:
+            # Clean up cancellation state after operation completes/fails/is cancelled
+            # Ensure thread is joined and state is reset
+            if progress_thread.is_alive():
+                try:
+                    progress_thread.join(timeout=5)
+                except (threading.ThreadError, RuntimeError):
+                    pass
+
+            # Reset cancellation tracking state
+            self.active_process = None
+            self.active_output_thread = None
+            self.cancel_requested = False
     
     def _handle_no_recent_hosts_error(self, original_cmd: List[str], error_details: str, 
                                      progress_callback: Optional[Callable]) -> Dict:
@@ -878,7 +1006,8 @@ class BackendInterface:
             "original_error": error_details,
             "recovery_action": "discovery_needed"
         }
-    
+
+
     def _parse_output_stream(self, stdout, output_lines: List[str], progress_callback: Optional[Callable]) -> None:
         """
         Parse CLI output stream for progress indicators.
@@ -1604,7 +1733,100 @@ class BackendInterface:
             "successful_auth": len(ip_list) // 3,  # Mock some successes
             "failed_auth": len(ip_list) - (len(ip_list) // 3)
         }
-    
+
+    def terminate_current_operation(self, graceful: bool = False) -> None:
+        """
+        Terminate the currently running operation by killing the subprocess and its children.
+
+        Args:
+            graceful: Whether to attempt graceful termination first (currently unused)
+
+        Design: Kills entire process tree using platform-specific process groups to ensure
+        all child processes (workers spawned by backend) are terminated.
+        """
+        # Mock mode safety - no subprocess operations to terminate
+        if self.mock_mode:
+            return
+
+        # No active process to terminate
+        if self.active_process is None:
+            return
+
+        # Set cancellation flag for _execute_with_progress to detect
+        self.cancel_requested = True
+
+        try:
+            process = self.active_process
+
+            # Platform-specific process group termination
+            if sys.platform.startswith('win'):
+                # Windows: Send CTRL_BREAK_EVENT to process group, then terminate
+                try:
+                    process.send_signal(signal.CTRL_BREAK_EVENT)
+                    # Wait briefly for graceful shutdown
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.terminate()  # Force kill on Windows
+                except (ProcessLookupError, PermissionError, OSError):
+                    # Process may have already exited, continue with cleanup
+                    pass
+            else:
+                # POSIX: Send SIGTERM to entire process group, escalate to SIGKILL if needed
+                try:
+                    # Kill entire process group to catch worker children
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    # Wait for graceful shutdown
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        # Escalate to SIGKILL for process group
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError, OSError):
+                            pass
+                except (ProcessLookupError, PermissionError, OSError):
+                    # Process group may not exist or we lack permissions, try individual process
+                    try:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+
+            # Clean up stdout pipe to unblock reader thread
+            try:
+                if process.stdout and not process.stdout.closed:
+                    process.stdout.close()
+            except (AttributeError, OSError):
+                pass
+
+            # Join the output reader thread with timeout
+            if self.active_output_thread is not None:
+                try:
+                    self.active_output_thread.join(timeout=3)
+                except (threading.ThreadError, RuntimeError):
+                    # Thread may have already finished or be in invalid state
+                    pass
+                # Clear thread reference after join
+                self.active_output_thread = None
+
+            # Update operation status to cancelled
+            if self.current_operation:
+                self.current_operation.update({
+                    "status": "cancelled",
+                    "end_time": time.time()
+                })
+
+        except Exception as e:
+            # Log termination errors but don't raise - cancellation should always succeed
+            print(f"Warning: Error during operation termination: {e}")
+
+        # Note: Don't clear active_process or cancel_requested here - let _execute_with_progress
+        # see these values and handle the cancellation properly in its finally block
+
     def get_operation_status(self) -> Optional[Dict]:
         """
         Get status of current operation.
@@ -1661,3 +1883,123 @@ class BackendInterface:
             return "Unknown"
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return None
+
+    def load_effective_config(self) -> Dict[str, Any]:
+        """
+        Load the effective configuration with defaults for scan dialog.
+
+        Returns:
+            Dictionary with config values, including safe defaults
+        """
+        if self.mock_mode:
+            return {
+                'shodan': {
+                    'api_key': 'mock_api_key_12345678901234567890123456789012',
+                    'query_limits': {'max_results': 1000}
+                },
+                'workflow': {
+                    'access_recent_hours': 2160  # 90 days * 24 hours
+                }
+            }
+
+        config = {}
+        try:
+            if self.config_path.exists():
+                with open(self.config_path, 'r') as f:
+                    config = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, PermissionError):
+            # Return safe defaults if config unavailable
+            pass
+
+        # Ensure required sections exist with defaults
+        if 'shodan' not in config:
+            config['shodan'] = {}
+        if 'query_limits' not in config['shodan']:
+            config['shodan']['query_limits'] = {}
+        if 'max_results' not in config['shodan']['query_limits']:
+            config['shodan']['query_limits']['max_results'] = 1000
+
+        if 'workflow' not in config:
+            config['workflow'] = {}
+        if 'access_recent_hours' not in config['workflow']:
+            # Convert from existing access_recent_days if available
+            recent_days = config['workflow'].get('access_recent_days', 90)
+            config['workflow']['access_recent_hours'] = recent_days * 24
+
+        if 'connection' not in config or not isinstance(config['connection'], dict):
+            config['connection'] = {}
+        connection_config = config['connection']
+        connection_config.setdefault('rate_limit_delay', 1)
+        connection_config.setdefault('share_access_delay', 1)
+
+        if 'discovery' not in config or not isinstance(config['discovery'], dict):
+            config['discovery'] = {'max_concurrent_hosts': 1}
+        else:
+            config['discovery'].setdefault('max_concurrent_hosts', 1)
+
+        if 'access' not in config or not isinstance(config['access'], dict):
+            config['access'] = {'max_concurrent_hosts': 1}
+        else:
+            config['access'].setdefault('max_concurrent_hosts', 1)
+
+        return config
+
+    @contextmanager
+    def _temporary_config_override(self, overrides: Dict[str, Any]):
+        """
+        Context manager for temporary config file with overrides.
+
+        Args:
+            overrides: Dictionary of config values to override
+
+        Yields:
+            Path to temporary config file
+
+        Usage:
+            with self._temporary_config_override({'shodan': {'api_key': 'new_key'}}):
+                # Use temp config for subprocess calls
+        """
+        import tempfile
+
+        # Load current config and apply overrides
+        base_config = self.load_effective_config()
+
+        # Deep merge overrides into base config
+        def deep_merge(base: dict, override: dict) -> dict:
+            """Deep merge two dictionaries."""
+            result = base.copy()
+            for key, value in override.items():
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = deep_merge(result[key], value)
+                else:
+                    result[key] = value
+            return result
+
+        temp_config = deep_merge(base_config, overrides)
+
+        # Create temporary file with proper cleanup
+        fd = None
+        temp_path = None
+        try:
+            fd, temp_path = tempfile.mkstemp(suffix=".json", prefix="smbseek_config_")
+
+            # Write merged config to temp file
+            with os.fdopen(fd, 'w') as f:
+                json.dump(temp_config, f, indent=2)
+                fd = None  # fdopen closes the descriptor
+
+            yield temp_path
+
+        finally:
+            # Cleanup: close descriptor if still open, then remove file
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass  # Already closed
+
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass  # Cleanup failed, but don't crash

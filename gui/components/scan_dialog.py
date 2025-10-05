@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import os
 import sys
+import json
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
@@ -78,6 +79,18 @@ class ScanDialog:
         self.rescan_failed_var = tk.BooleanVar(value=False)
         self.api_key_var = tk.StringVar()
 
+        # Backend concurrency and rate limit controls
+        self.discovery_concurrency_var = tk.StringVar()
+        self.access_concurrency_var = tk.StringVar()
+        self.rate_limit_delay_var = tk.StringVar()
+        self.share_access_delay_var = tk.StringVar()
+
+        self._concurrency_upper_limit = 256
+        self._delay_upper_limit = 3600
+
+        # Load backend defaults for concurrency and rate limits
+        self._load_backend_defaults()
+
         # Load initial values from settings if available
         self._load_initial_values()
 
@@ -87,7 +100,7 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("500x815")
+        self.dialog.geometry("500x820")
         self.dialog.minsize(400, 250)
         
         # Apply theme
@@ -210,6 +223,12 @@ class ScanDialog:
         # Rescan Options
         self._create_rescan_options(options_frame)
 
+        # Backend concurrency controls
+        self._create_concurrency_options(options_frame)
+
+        # Rate limit delays
+        self._create_rate_limit_options(options_frame)
+
         # API Key Override
         self._create_api_key_option(options_frame)
 
@@ -325,6 +344,184 @@ class ScanDialog:
         )
         self.theme.apply_to_widget(self.rescan_failed_checkbox, "checkbox")
         self.rescan_failed_checkbox.pack(anchor="w", padx=5)
+
+    def _create_concurrency_options(self, parent_frame: tk.Frame) -> None:
+        """Create backend concurrency controls."""
+        concurrency_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(concurrency_container, "card")
+        concurrency_container.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        title_label = self.theme.create_styled_label(
+            concurrency_container,
+            "Backend Concurrency:",
+            "body"
+        )
+        title_label.pack(anchor="w")
+
+        validate_cmd = self.dialog.register(self._validate_integer_input)
+
+        discovery_row = tk.Frame(concurrency_container)
+        self.theme.apply_to_widget(discovery_row, "card")
+        discovery_row.pack(fill=tk.X, pady=(5, 0))
+
+        discovery_label = self.theme.create_styled_label(
+            discovery_row,
+            "Discovery workers:",
+            "small"
+        )
+        discovery_label.pack(side=tk.LEFT)
+
+        discovery_entry = tk.Entry(
+            discovery_row,
+            textvariable=self.discovery_concurrency_var,
+            width=6,
+            validate='key',
+            validatecommand=(validate_cmd, '%P')
+        )
+        self.theme.apply_to_widget(discovery_entry, "entry")
+        discovery_entry.pack(side=tk.LEFT, padx=(8, 0))
+
+        discovery_hint = self.theme.create_styled_label(
+            discovery_row,
+            "Hosts authenticated in parallel",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        discovery_hint.pack(side=tk.LEFT, padx=(8, 0))
+
+        access_row = tk.Frame(concurrency_container)
+        self.theme.apply_to_widget(access_row, "card")
+        access_row.pack(fill=tk.X, pady=(5, 0))
+
+        access_label = self.theme.create_styled_label(
+            access_row,
+            "Access workers:",
+            "small"
+        )
+        access_label.pack(side=tk.LEFT)
+
+        access_entry = tk.Entry(
+            access_row,
+            textvariable=self.access_concurrency_var,
+            width=6,
+            validate='key',
+            validatecommand=(validate_cmd, '%P')
+        )
+        self.theme.apply_to_widget(access_entry, "entry")
+        access_entry.pack(side=tk.LEFT, padx=(23, 0))
+
+        access_hint = self.theme.create_styled_label(
+            access_row,
+            "Hosts tested in parallel during share access",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        access_hint.pack(side=tk.LEFT, padx=(8, 0))
+
+        helper_label = self.theme.create_styled_label(
+            concurrency_container,
+            f"Allowed range: 1 - {self._concurrency_upper_limit} workers",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        helper_label.pack(anchor="w", pady=(6, 0))
+
+        note_label = self.theme.create_styled_label(
+            concurrency_container,
+            "Raising concurrency increases network load. Update the delays below to stay within limits.",
+            "small",
+            fg=self.theme.colors["warning"]
+        )
+        note_label.pack(anchor="w", pady=(2, 0))
+
+    def _create_rate_limit_options(self, parent_frame: tk.Frame) -> None:
+        """Create rate limit delay controls."""
+        delay_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(delay_container, "card")
+        delay_container.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        title_label = self.theme.create_styled_label(
+            delay_container,
+            "Rate Limit Delays (seconds):",
+            "body"
+        )
+        title_label.pack(anchor="w")
+
+        validate_cmd = self.dialog.register(self._validate_integer_input)
+
+        rate_row = tk.Frame(delay_container)
+        self.theme.apply_to_widget(rate_row, "card")
+        rate_row.pack(fill=tk.X, pady=(5, 0))
+
+        rate_label = self.theme.create_styled_label(
+            rate_row,
+            "Authentication delay:",
+            "small"
+        )
+        rate_label.pack(side=tk.LEFT)
+
+        rate_entry = tk.Entry(
+            rate_row,
+            textvariable=self.rate_limit_delay_var,
+            width=6,
+            validate='key',
+            validatecommand=(validate_cmd, '%P')
+        )
+        self.theme.apply_to_widget(rate_entry, "entry")
+        rate_entry.pack(side=tk.LEFT, padx=(10, 0))
+
+        rate_hint = self.theme.create_styled_label(
+            rate_row,
+            "Delay between discovery auth attempts",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        rate_hint.pack(side=tk.LEFT, padx=(8, 0))
+
+        share_row = tk.Frame(delay_container)
+        self.theme.apply_to_widget(share_row, "card")
+        share_row.pack(fill=tk.X, pady=(5, 0))
+
+        share_label = self.theme.create_styled_label(
+            share_row,
+            "Share access delay:",
+            "small"
+        )
+        share_label.pack(side=tk.LEFT)
+
+        share_entry = tk.Entry(
+            share_row,
+            textvariable=self.share_access_delay_var,
+            width=6,
+            validate='key',
+            validatecommand=(validate_cmd, '%P')
+        )
+        self.theme.apply_to_widget(share_entry, "entry")
+        share_entry.pack(side=tk.LEFT, padx=(18, 0))
+
+        share_hint = self.theme.create_styled_label(
+            share_row,
+            "Delay between share enumerations per host",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        share_hint.pack(side=tk.LEFT, padx=(8, 0))
+
+        helper_label = self.theme.create_styled_label(
+            delay_container,
+            f"Allowed range: 0 - {self._delay_upper_limit} seconds",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        helper_label.pack(anchor="w", pady=(6, 0))
+
+        note_label = self.theme.create_styled_label(
+            delay_container,
+            "Increase these delays when scaling concurrency to avoid overwhelming targets.",
+            "small",
+            fg=self.theme.colors["warning"]
+        )
+        note_label.pack(anchor="w", pady=(2, 0))
 
     def _create_api_key_option(self, parent_frame: tk.Frame) -> None:
         """Create API key override option."""
@@ -539,6 +736,74 @@ class ScanDialog:
                 "Please ensure the configuration system is properly set up."
             )
 
+    def _load_backend_defaults(self) -> None:
+        """Load concurrency and rate limit defaults from the backend configuration."""
+        def _coerce_int(value: Any, default: int, minimum: int = 0) -> int:
+            try:
+                int_value = int(value)
+                if int_value < minimum:
+                    raise ValueError
+                return int_value
+            except (TypeError, ValueError):
+                return default
+
+        config_data: Dict[str, Any] = {}
+
+        if self._backend_interface is not None:
+            try:
+                config_data = self._backend_interface.load_effective_config()
+            except Exception:
+                config_data = {}
+
+        if not config_data:
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as config_file:
+                    config_data = json.load(config_file)
+            except (FileNotFoundError, json.JSONDecodeError, PermissionError):
+                config_data = {}
+
+        if not isinstance(config_data, dict):
+            config_data = {}
+
+        discovery_defaults = config_data.get('discovery', {}) if isinstance(config_data.get('discovery'), dict) else {}
+        access_defaults = config_data.get('access', {}) if isinstance(config_data.get('access'), dict) else {}
+        connection_defaults = config_data.get('connection', {}) if isinstance(config_data.get('connection'), dict) else {}
+
+        discovery_value = _coerce_int(discovery_defaults.get('max_concurrent_hosts'), 1, minimum=1)
+        access_value = _coerce_int(access_defaults.get('max_concurrent_hosts'), 1, minimum=1)
+        rate_limit_value = _coerce_int(connection_defaults.get('rate_limit_delay'), 1, minimum=0)
+        share_delay_value = _coerce_int(connection_defaults.get('share_access_delay'), 1, minimum=0)
+
+        self.discovery_concurrency_var.set(str(discovery_value))
+        self.access_concurrency_var.set(str(access_value))
+        self.rate_limit_delay_var.set(str(rate_limit_value))
+        self.share_access_delay_var.set(str(share_delay_value))
+
+    def _parse_positive_int(self, value_str: str, field_name: str, *, minimum: int = 0,
+                             maximum: Optional[int] = None) -> int:
+        """Parse and validate positive integers for numeric fields."""
+        if value_str == "":
+            raise ValueError(f"{field_name} is required.")
+
+        try:
+            value = int(value_str)
+        except ValueError:
+            raise ValueError(f"{field_name} must be a whole number.")
+
+        if value < minimum:
+            raise ValueError(f"{field_name} must be at least {minimum}.")
+
+        if maximum is not None and value > maximum:
+            raise ValueError(f"{field_name} must be {maximum} or less.")
+
+        return value
+
+    def _validate_integer_input(self, proposed: str) -> bool:
+        """Allow only positive integer characters during entry editing."""
+        if proposed == "":
+            return True
+        return proposed.isdigit()
+
     def _build_scan_options(self, country_param: Optional[str]) -> Dict[str, Any]:
         """
         Build complete scan options dict with type-safe settings extraction.
@@ -563,6 +828,34 @@ class ScanDialog:
         api_key = self.api_key_var.get().strip()
         api_key = api_key if api_key else None
 
+        discovery_concurrency = self._parse_positive_int(
+            self.discovery_concurrency_var.get().strip(),
+            "Discovery max concurrent hosts",
+            minimum=1,
+            maximum=self._concurrency_upper_limit
+        )
+
+        access_concurrency = self._parse_positive_int(
+            self.access_concurrency_var.get().strip(),
+            "Access max concurrent hosts",
+            minimum=1,
+            maximum=self._concurrency_upper_limit
+        )
+
+        rate_limit_delay = self._parse_positive_int(
+            self.rate_limit_delay_var.get().strip(),
+            "Rate limit delay (seconds)",
+            minimum=0,
+            maximum=self._delay_upper_limit
+        )
+
+        share_access_delay = self._parse_positive_int(
+            self.share_access_delay_var.get().strip(),
+            "Share access delay (seconds)",
+            minimum=0,
+            maximum=self._delay_upper_limit
+        )
+
         # Save selections back to settings for next time
         if self._settings_manager is not None:
             try:
@@ -571,6 +864,10 @@ class ScanDialog:
                 self._settings_manager.set_setting('scan_dialog.rescan_all', rescan_all)
                 self._settings_manager.set_setting('scan_dialog.rescan_failed', rescan_failed)
                 self._settings_manager.set_setting('scan_dialog.api_key_override', api_key or '')
+                self._settings_manager.set_setting('scan_dialog.discovery_max_concurrency', discovery_concurrency)
+                self._settings_manager.set_setting('scan_dialog.access_max_concurrency', access_concurrency)
+                self._settings_manager.set_setting('scan_dialog.rate_limit_delay', rate_limit_delay)
+                self._settings_manager.set_setting('scan_dialog.share_access_delay', share_access_delay)
             except Exception:
                 pass  # Don't fail scan if settings save fails
 
@@ -581,7 +878,11 @@ class ScanDialog:
             'recent_hours': recent_hours,
             'rescan_all': rescan_all,
             'rescan_failed': rescan_failed,
-            'api_key_override': api_key
+            'api_key_override': api_key,
+            'discovery_max_concurrent_hosts': discovery_concurrency,
+            'access_max_concurrent_hosts': access_concurrency,
+            'rate_limit_delay': rate_limit_delay,
+            'share_access_delay': share_access_delay
         }
 
         return scan_options
@@ -597,12 +898,26 @@ class ScanDialog:
                 rescan_failed = bool(self._settings_manager.get_setting('scan_dialog.rescan_failed', False))
                 api_key = str(self._settings_manager.get_setting('scan_dialog.api_key_override', ''))
 
+                discovery_concurrency = self._settings_manager.get_setting('scan_dialog.discovery_max_concurrency', None)
+                access_concurrency = self._settings_manager.get_setting('scan_dialog.access_max_concurrency', None)
+                rate_limit_delay = self._settings_manager.get_setting('scan_dialog.rate_limit_delay', None)
+                share_access_delay = self._settings_manager.get_setting('scan_dialog.share_access_delay', None)
+
                 # Set UI variables
                 self.max_results_var.set(max_results)
                 self.recent_hours_var.set(str(recent_hours) if recent_hours is not None else '')
                 self.rescan_all_var.set(rescan_all)
                 self.rescan_failed_var.set(rescan_failed)
                 self.api_key_var.set(api_key)
+
+                if discovery_concurrency is not None:
+                    self.discovery_concurrency_var.set(str(discovery_concurrency))
+                if access_concurrency is not None:
+                    self.access_concurrency_var.set(str(access_concurrency))
+                if rate_limit_delay is not None:
+                    self.rate_limit_delay_var.set(str(rate_limit_delay))
+                if share_access_delay is not None:
+                    self.share_access_delay_var.set(str(share_access_delay))
             except Exception:
                 # Fall back to defaults if settings loading fails
                 pass
@@ -646,6 +961,12 @@ class ScanDialog:
 
             # Close dialog
             self.dialog.destroy()
+        except ValueError as e:
+            messagebox.showerror(
+                "Invalid Input",
+                str(e)
+            )
+            return
         except Exception as e:
             # Handle scan start errors gracefully
             messagebox.showerror(

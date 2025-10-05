@@ -75,7 +75,20 @@ class SettingsManager:
                 'last_import_location': '',
                 'export_format_preference': 'csv',
                 'import_mode_preference': 'merge',
-                'favorite_servers': []
+                'favorite_servers': [],
+                'avoid_servers': []
+            },
+            'scan_dialog': {
+                'max_shodan_results': 1000,
+                'recent_hours': None,  # None means use config default
+                'rescan_all': False,
+                'rescan_failed': False,
+                'api_key_override': '',
+                'discovery_max_concurrency': 1,
+                'access_max_concurrency': 1,
+                'rate_limit_delay': 1,
+                'share_access_delay': 1,
+                'remember_api_key': False
             },
             'backend': {
                 'mock_mode': False,
@@ -712,6 +725,85 @@ class SettingsManager:
             return False
         else:
             self.add_favorite_server(ip)
+            return True
+
+    def get_avoid_servers(self) -> List[str]:
+        """
+        Get list of avoid server IP addresses.
+
+        Returns:
+            List of IP addresses marked to avoid
+        """
+        return self.get_setting('data.avoid_servers', [])
+
+    def is_avoid_server(self, ip: Optional[str]) -> bool:
+        """
+        Check if server IP is marked to avoid.
+
+        Args:
+            ip: IP address to check (None/empty strings return False)
+
+        Returns:
+            True if IP is in avoid list, False otherwise
+        """
+        if not ip or not ip.strip():
+            return False
+
+        avoid_list = self.get_avoid_servers()
+        return ip.strip() in avoid_list
+
+    def add_avoid_server(self, ip: Optional[str]) -> None:
+        """
+        Add server IP to avoid list.
+
+        Args:
+            ip: IP address to add (None/empty strings are ignored)
+        """
+        if not ip or not ip.strip():
+            return
+
+        ip = ip.strip()
+        avoid_list = self.get_avoid_servers()
+
+        if ip not in avoid_list:
+            avoid_list.append(ip)
+            self.set_setting('data.avoid_servers', avoid_list)
+
+    def remove_avoid_server(self, ip: Optional[str]) -> None:
+        """
+        Remove server IP from avoid list.
+
+        Args:
+            ip: IP address to remove (None/empty strings are ignored)
+        """
+        if not ip or not ip.strip():
+            return
+
+        ip = ip.strip()
+        avoid_list = self.get_avoid_servers()
+
+        if ip in avoid_list:
+            avoid_list.remove(ip)
+            self.set_setting('data.avoid_servers', avoid_list)
+
+    def toggle_avoid_server(self, ip: Optional[str]) -> bool:
+        """
+        Toggle avoid status of server IP.
+
+        Args:
+            ip: IP address to toggle (None/empty strings return False)
+
+        Returns:
+            True if IP is now avoided, False otherwise
+        """
+        if not ip or not ip.strip():
+            return False
+
+        if self.is_avoid_server(ip):
+            self.remove_avoid_server(ip)
+            return False
+        else:
+            self.add_avoid_server(ip)
             return True
 
 

@@ -231,30 +231,38 @@ class ScanManager:
         except Exception:
             pass
     
-    def start_scan(self, country: Optional[str], backend_path: str,
+    def start_scan(self, scan_options: dict, backend_path: str,
                   progress_callback: Callable[[float, str, str], None]) -> bool:
         """
-        Start a new SMB security scan.
-        
+        Start a new SMB security scan with extended options.
+
         Args:
-            country: Country code (None for global scan)
+            scan_options: Dictionary containing scan configuration:
+                - country: Country code (None for global scan)
+                - max_shodan_results: Maximum Shodan results to fetch
+                - recent_hours: Hours for recent filtering (None for default)
+                - rescan_all: Whether to rescan all hosts
+                - rescan_failed: Whether to rescan failed hosts
+                - api_key_override: API key override (None for config default)
             backend_path: Path to backend directory
             progress_callback: Function called with (percentage, status, phase)
-            
+
         Returns:
             True if scan started successfully, False otherwise
         """
         if self.is_scan_active():
             return False
-        
+
+        country = scan_options.get('country')
+
         # Create lock file
         if not self.create_lock_file(country, "complete"):
             return False
-        
+
         try:
             # Initialize backend interface
             self.backend_interface = BackendInterface(backend_path)
-            
+
             # Set up scan state
             self.is_scanning = True
             self.scan_start_time = datetime.now()
@@ -262,19 +270,20 @@ class ScanManager:
             self.scan_results = {
                 "start_time": self.scan_start_time.isoformat(),
                 "country": country,
+                "scan_options": scan_options,
                 "status": "running"
             }
-            
-            # Start scan in background thread
+
+            # Start scan in background thread with new options
             self.scan_thread = threading.Thread(
                 target=self._scan_worker,
-                args=(country,),
+                args=(scan_options,),
                 daemon=True
             )
             self.scan_thread.start()
-            
+
             return True
-            
+
         except Exception as e:
             # Clean up on error
             self.is_scanning = False
@@ -282,53 +291,123 @@ class ScanManager:
             self._update_progress(0, f"Failed to start scan: {str(e)}", "error")
             return False
     
-    def _scan_worker(self, country: Optional[str]) -> None:
+    def _scan_worker(self, scan_options: dict) -> None:
         """
-        Background worker thread for scan execution.
-        
+        Background worker thread for scan execution with extended options.
+
         Args:
-            country: Country code for scan
+            scan_options: Dictionary containing scan configuration
         """
         try:
-            # Prepare scan parameters
+            # Extract parameters
+            country = scan_options.get('country')
             countries = [country] if country else []
-            
+
             # Start scan
             self._update_progress(5, "Initializing scan...", "initialization")
-            
-            # Execute scan with progress tracking
-            results = self.backend_interface.run_scan(
-                countries, 
-                self._handle_backend_progress
-            )
-            
+
+            # Build config overrides
+            config_overrides = {}
+
+            # Apply max results override
+            max_results = scan_options.get('max_shodan_results')
+            if max_results is not None:
+                config_overrides['shodan'] = {'query_limits': {'max_results': max_results}}
+
+            # Apply API key override
+            api_key = scan_options.get('api_key_override')
+            if api_key:
+                if 'shodan' not in config_overrides:
+                    config_overrides['shodan'] = {}
+                config_overrides['shodan']['api_key'] = api_key
+
+            # Apply recent hours override (convert to access_recent_hours for config)
+            recent_hours = scan_options.get('recent_hours')
+            if recent_hours is not None:
+                config_overrides['workflow'] = {'access_recent_hours': recent_hours}
+
+            discovery_concurrency = scan_options.get('discovery_max_concurrent_hosts')
+            if discovery_concurrency is not None:
+                config_overrides.setdefault('discovery', {})['max_concurrent_hosts'] = discovery_concurrency
+
+            access_concurrency = scan_options.get('access_max_concurrent_hosts')
+            if access_concurrency is not None:
+                config_overrides.setdefault('access', {})['max_concurrent_hosts'] = access_concurrency
+
+            rate_limit_delay = scan_options.get('rate_limit_delay')
+            if rate_limit_delay is not None:
+                config_overrides.setdefault('connection', {})['rate_limit_delay'] = rate_limit_delay
+
+            share_access_delay = scan_options.get('share_access_delay')
+            if share_access_delay is not None:
+                config_overrides.setdefault('connection', {})['share_access_delay'] = share_access_delay
+
+            # Execute scan with temporary config override
+            if config_overrides:
+                self._update_progress(7, "Applying configuration overrides...", "initialization")
+                with self.backend_interface._temporary_config_override(config_overrides):
+                    results = self._execute_scan_with_options(countries, scan_options)
+            else:
+                results = self._execute_scan_with_options(countries, scan_options)
+
             # Process results
             self._process_scan_results(results)
-            
+
         except Exception as e:
             # Handle scan errors
             self._handle_scan_error(e)
-        
         finally:
-            # Clean up
+            # Ensure cleanup happens regardless of success, failure, or cancellation
             self._cleanup_scan()
+
+    def _execute_scan_with_options(self, countries: List[str], scan_options: dict) -> dict:
+        """Execute scan with CLI options and config overrides."""
+        # Build CLI arguments
+        cli_args = []
+
+        # Add CLI flags for rescan options
+        if scan_options.get('rescan_all'):
+            cli_args.append('--rescan-all')
+
+        if scan_options.get('rescan_failed'):
+            cli_args.append('--rescan-failed')
+
+        # Recent hours filtering is now handled through config overrides
+        # in the _execute_scan method via _temporary_config_override
+        # (lines 324-327). CLI --recent flag removed for SMBSeek 3.x compatibility.
+
+        # Execute scan with additional CLI arguments
+        self._update_progress(10, "Starting scan execution...", "discovery")
+
+        # Use the backend interface run_scan method but with enhanced parameters
+        # For now, use the existing run_scan method and let config overrides handle the rest
+        return self.backend_interface.run_scan(
+            countries,
+            self._handle_backend_progress,
+            additional_args=cli_args
+        )
     
     def _handle_backend_progress(self, percentage: float, message: str) -> None:
         """
         Handle progress updates from backend interface.
-        
+
         Backend interface already does sophisticated parsing, so we trust its
         percentage calculations and add minimal processing for phase detection.
-        
+
         Args:
             percentage: Progress percentage (0-100) from backend interface
             message: Progress message from backend interface
         """
+        # Handle message-only updates where percentage is None
+        if percentage is None:
+            percentage = float(self.last_progress_update.get("percentage", 0)) if hasattr(self, 'last_progress_update') and self.last_progress_update else 0.0
+
         # Ensure progress always moves forward (prevent stuck states)
         if hasattr(self, 'last_progress_update') and self.last_progress_update:
             last_percentage = self.last_progress_update.get("percentage", 0)
             # Only use new percentage if it's higher, or if significant time has passed
-            if percentage < last_percentage:
+            # Skip comparison if either value is not numeric
+            if isinstance(percentage, (int, float)) and isinstance(last_percentage, (int, float)) and percentage < last_percentage:
                 import time
                 last_time = self.last_progress_update.get("timestamp", "")
                 current_time = datetime.now().isoformat()
@@ -372,17 +451,26 @@ class ScanManager:
         """
         message_lower = message.lower()
         
-        # Simple keyword-based phase detection (order matters - check specific first)
+        # Simple keyword-based phase detection (SMBSeek 3.0 three-phase model)
         if any(keyword in message_lower for keyword in ['complete', 'finished', 'done']):
             return "completed"
-        elif any(keyword in message_lower for keyword in ['error', 'fail', 'exception']):
-            return "error"
-        elif any(keyword in message_lower for keyword in ['report', 'results', 'summary', 'generating']):
-            return "reporting"
-        elif any(keyword in message_lower for keyword in ['collect', 'enum', 'shares', 'files']):
-            return "collection"
-        elif any(keyword in message_lower for keyword in ['auth', 'access', 'testing', 'login']):
+
+        scoreboard_message = (
+            ("testing hosts" in message_lower or "testing recent hosts" in message_lower)
+            and ("success:" in message_lower or "failed:" in message_lower)
+        ) or "auth results" in message_lower
+        if scoreboard_message:
             return "access_testing"
+
+        error_indicators = [
+            'error:', ' error', 'critical', 'fatal', 'exception', 'traceback',
+            'scan failed', 'failed to', 'failed due', 'failure', ' aborted', ' terminated'
+        ]
+        if any(indicator in message_lower for indicator in error_indicators):
+            return "error"
+
+        if any(keyword in message_lower for keyword in ['auth', 'access', 'testing', 'login', 'shares', 'enum']):
+            return "access_testing"  # Combined access testing and enumeration
         elif any(keyword in message_lower for keyword in ['discover', 'shodan', 'query', 'search']):
             return "discovery"
         elif any(keyword in message_lower for keyword in ['initializ', 'start', 'begin']):
@@ -407,13 +495,12 @@ class ScanManager:
         indicator_index = int((percentage // 2) % len(activity_indicators))
         activity_indicator = activity_indicators[indicator_index]
         
-        # Add phase-specific prefixes for clarity
+        # Add phase-specific prefixes for clarity (SMBSeek 3.0 three-phase model)
         phase_prefixes = {
             "initialization": "🚀 Starting",
             "discovery": "🔍 Discovering",
-            "access_testing": "🔐 Testing Access",
-            "collection": "📁 Collecting Data",
-            "reporting": "📊 Generating Report",
+            "authentication": "🔐 Testing Authentication",
+            "access_testing": "⚡ Testing Access",
             "completed": "✅ Complete",
             "error": "❌ Error",
             "scanning": "⚡ Scanning"
@@ -461,7 +548,29 @@ class ScanManager:
         end_time = datetime.now()
         duration = end_time - self.scan_start_time
         
-        # Update scan results
+        # Check for cancellation first
+        if results.get("cancelled", False):
+            # Handle cancelled scan
+            self.scan_results.update({
+                "end_time": end_time.isoformat(),
+                "duration_seconds": duration.total_seconds(),
+                "status": "cancelled",
+                "backend_results": results,
+                "hosts_scanned": results.get("hosts_tested", 0),
+                "accessible_hosts": results.get("successful_auth", 0),
+                "shares_found": results.get("shares_discovered", 0),
+                "summary_message": "Scan cancelled by user"
+            })
+
+            # Update progress with cancellation message using dedicated phase
+            self._update_progress(
+                self.last_progress_update.get("percentage", 0) if self.last_progress_update else 50,
+                "Scan cancelled by user",
+                "cancelled"
+            )
+            return
+
+        # Update scan results for normal completion/failure
         self.scan_results.update({
             "end_time": end_time.isoformat(),
             "duration_seconds": duration.total_seconds(),
@@ -469,17 +578,23 @@ class ScanManager:
             "backend_results": results,
             "hosts_scanned": results.get("hosts_tested", 0),
             "accessible_hosts": results.get("successful_auth", 0),
-            "shares_found": results.get("shares_discovered", 0),
-            "files_collected": results.get("files_collected", 0)
+            "shares_found": results.get("shares_discovered", 0)
         })
-        
+
         # Final progress update
         if results.get("success", False):
             hosts = self.scan_results["hosts_scanned"]
             accessible = self.scan_results["accessible_hosts"]
+
+            # Build enhanced summary message (SMBSeek 3.0 - no file collection)
+            summary_message = f"Scan completed: {accessible}/{hosts} hosts accessible"
+
+            # Store summary message for UI display
+            self.scan_results["summary_message"] = summary_message
+
             self._update_progress(
                 100,
-                f"Scan completed: {accessible}/{hosts} hosts accessible",
+                summary_message,
                 "completed"
             )
         else:
@@ -550,28 +665,33 @@ class ScanManager:
     
     def interrupt_scan(self) -> bool:
         """
-        Interrupt currently running scan.
-        
+        Interrupt currently running scan by terminating backend subprocess.
+
         Returns:
-            True if scan was interrupted, False if no scan active
+            True if cancellation was initiated, False if no scan active or error
         """
         if not self.is_scanning:
             return False
-        
+
         try:
-            # Signal scan to stop
-            self.is_scanning = False
-            
-            # Update results to indicate interruption
+            # Update status to indicate cancellation in progress
             self.scan_results.update({
-                "status": "interrupted",
-                "end_time": datetime.now().isoformat(),
-                "interrupted_by": "user"
+                "status": "cancelling",
+                "cancellation_start": datetime.now().isoformat()
             })
-            
+
+            # Terminate the backend subprocess and its children
+            if self.backend_interface:
+                self.backend_interface.terminate_current_operation()
+
+            # Keep is_scanning = True - let _cleanup_scan() reset it
+            # This prevents dashboard monitor from bailing out early
+
             return True
-            
-        except Exception:
+
+        except Exception as e:
+            # Log error but don't expose details to UI
+            print(f"Error during scan cancellation: {e}")
             return False
     
     def get_last_scan_time(self) -> Optional[datetime]:
