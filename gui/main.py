@@ -481,36 +481,34 @@ class SMBSeekGUI:
         # Schedule next check
         self.root.after(100, self._process_scan_queue)
     
-    def _start_scan(self, countries: list, scan_type: str = "run") -> None:
+    def _start_scan(self, countries: list) -> None:
         """
-        Start background scan operation.
-        
+        Start background scan operation using unified SMBSeek 3.0 workflow.
+
         Args:
             countries: List of country codes to scan
-            scan_type: Type of scan to perform
         """
         if self.scan_thread and self.scan_thread.is_alive():
             messagebox.showwarning("Scan in Progress", "A scan is already running. Please wait for it to complete.")
             return
-        
-        # Start progress display
-        self.dashboard.start_scan_progress(scan_type, countries)
-        
+
+        # Start progress display (using unified scan type)
+        self.dashboard.start_scan_progress("run", countries)
+
         # Start background scan
         self.scan_thread = threading.Thread(
             target=self._scan_worker,
-            args=(countries, scan_type),
+            args=(countries,),
             daemon=True
         )
         self.scan_thread.start()
     
-    def _scan_worker(self, countries: list, scan_type: str) -> None:
+    def _scan_worker(self, countries: list) -> None:
         """
-        Background worker for scan operations.
-        
+        Background worker for unified scan operations (SMBSeek 3.0).
+
         Args:
             countries: Countries to scan
-            scan_type: Type of scan to perform
         """
         try:
             # Progress callback for scan updates
@@ -521,13 +519,8 @@ class SMBSeekGUI:
                     "message": message
                 })
             
-            # Execute scan
-            if scan_type == "run":
-                results = self.backend_interface.run_scan(countries, progress_callback)
-            elif scan_type == "discover":
-                results = self.backend_interface.run_discover(countries, progress_callback)
-            else:
-                raise ValueError(f"Unknown scan type: {scan_type}")
+            # Execute unified scan (SMBSeek 3.0 - discovery-only mode removed)
+            results = self.backend_interface.run_scan(countries, progress_callback)
             
             # Send completion notification
             self.scan_queue.put({

@@ -19,10 +19,10 @@
 git clone <repository-url>
 cd smbseek
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# OR: venv\Scripts\activate  # Windows
+# Create virtual environment (you can name this anything)
+python3 -m venv smbseek_env
+source smbseek_env/bin/activate  # Linux/macOS
+# OR: smbseek_env\Scripts\activate  # Windows
 
 # Install dependencies
 pip install -r requirements.txt
@@ -40,7 +40,12 @@ brew install samba
 ```
 
 ### 4. Configure Your API Key
-Edit `conf/config.json`:
+```bash
+# Copy example configuration
+cp conf/config.json.example conf/config.json
+
+# Edit conf/config.json and add your API key:
+```
 ```json
 {
   "shodan": {
@@ -51,11 +56,11 @@ Edit `conf/config.json`:
 
 ### 5. Run Your First Scan
 ```bash
-# New unified CLI (recommended)
+# Streamlined single command - complete workflow
 ./smbseek.py --country US
 
-# OR use the legacy tools (still supported)
-python3 tools/smb_scan.py -c US
+# With verbose output for learning
+./smbseek.py --country US --verbose
 ```
 
 **That's it!** In a few minutes, you'll have a database full of SMB server data ready to explore.
@@ -65,7 +70,7 @@ python3 tools/smb_scan.py -c US
 ## 📦 Complete Installation Guide
 
 ### System Requirements
-- **Python**: 3.6 or newer
+- **Python**: 3.8 or newer (recommended: 3.10+)
 - **Operating System**: Linux, macOS, or Windows
 - **Network**: Internet connection for Shodan API
 - **Storage**: 50MB minimum for database and tools
@@ -83,8 +88,8 @@ sudo apt install python3 python3-venv python3-pip smbclient
 # Clone and setup SMBSeek
 git clone <repository-url>
 cd smbseek
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv smbseek_env
+source smbseek_env/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -97,8 +102,8 @@ sudo dnf install python3 python3-venv python3-pip samba-client
 # Clone and setup SMBSeek
 git clone <repository-url>
 cd smbseek
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv smbseek_env
+source smbseek_env/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -113,8 +118,8 @@ brew install python samba
 # Clone and setup SMBSeek
 git clone <repository-url>
 cd smbseek
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv smbseek_env
+source smbseek_env/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -154,14 +159,14 @@ SMBSeek identifies SMB (Server Message Block) servers that allow weak authentica
 SMBSeek stores all scan results in a SQLite database (`smbseek.db`) that automatically grows with your scans. This allows you to:
 - **Query across multiple scans** to see trends
 - **Correlate data** between different security tools
-- **Export data** in various formats for analysis
-- **Track changes** over time with historical data
+- **Generate reports** from historical data
+- **Export data** in various formats
 
 ### The Workflow
-1. **Scan**: Query Shodan and test SMB servers
-2. **Store**: Save results automatically in the database  
-3. **Query**: Use built-in tools to explore your data
-4. **Export**: Generate data exports for external analysis
+1. **Scan**: Query Shodan and test SMB servers (`./smbseek.py [--country ...]`)
+2. **Store**: Results are saved automatically in `smbseek.db`
+3. **Query**: Explore findings with `python tools/db_query.py`
+4. **Act**: Feed the data into your reporting or security processes
 
 ---
 
@@ -173,34 +178,25 @@ SMBSeek stores all scan results in a SQLite database (`smbseek.db`) that automat
 source venv/bin/activate  # Linux/macOS
 # OR: venv\Scripts\activate  # Windows
 
-# Unified CLI (recommended) - uses default countries from config.json
-./smbseek.py
-
-# Or scan specific country
+# Single command interface - complete workflow
 ./smbseek.py --country US
 
-# Legacy approach (still supported)
-python3 tools/smb_scan.py -c US
+# Or scan with global defaults
+./smbseek.py
 ```
 
 ### Common Scan Commands
 ```bash
-# Unified CLI commands (recommended)
-./smbseek.py                    # Uses default countries from config
-./smbseek.py --country US       # Scan specific country
-./smbseek.py --country US,GB,CA # Scan multiple countries
-./smbseek.py --quiet            # Quiet mode (less output)
-./smbseek.py --verbose          # Verbose mode (detailed information)
+# SMBSeek 3.0 single command interface
+./smbseek.py                       # Uses global defaults
+./smbseek.py --country US          # Scan specific country
+./smbseek.py --country US,GB,CA    # Scan multiple countries
+./smbseek.py --quiet               # Quiet mode (less output)
+./smbseek.py --verbose             # Verbose mode (detailed information)
 
-# Discovery only (without full workflow)
-./smbseek.py discover               # Uses config defaults
-./smbseek.py discover --country US  # Specific country
-
-# Legacy commands (still supported)
-python3 tools/smb_scan.py -c US,GB,CA  # Multiple countries
-python3 tools/smb_scan.py -q -c US     # Quiet mode
-python3 tools/smb_scan.py -v -c US     # Verbose mode
-python3 tools/smb_scan.py -t           # Global scan
+# Legacy subcommands (deprecated – emit warnings)
+./smbseek.py run --country US      # ⚠️ Deprecated
+./smbseek.py discover --country US # ⚠️ Deprecated
 ```
 
 ### Understanding the Output
@@ -228,7 +224,7 @@ SMBSeek provides detailed progress information throughout the scanning process:
 #### During Authentication Testing
 ```bash
 ℹ Testing SMB authentication on 900 hosts...
-ℹ 📊 Progress: 225/900 (25.0%) | Success: 12, Failed: 213
+ℹ 📊 Progress: 225/900 (25.0%) | Success: 12, Failed: 213 (5%)
 [225/900] Testing 192.168.1.100...
   ✓ 192.168.1.100: Anonymous (smbclient)
 ```
@@ -284,51 +280,35 @@ python3 tools/db_query.py --all
 
 **Example 1: Find all servers in my country**
 ```bash
-# Unified CLI (recommended)
-./smbseek.py report --countries
-
-# Legacy approach
+# Database query tools
 python3 tools/db_query.py --countries
 ```
 This shows how many vulnerable servers were found in each country.
 
 **Example 2: Show me the most accessible servers**
 ```bash
-# Unified CLI (recommended)
-./smbseek.py report --summary
-
-# Legacy approach
+# Database query tools
 python3 tools/db_query.py --summary
 ```
 This displays servers with the most accessible shares, sorted by accessibility.
 
 **Example 3: Which countries have the most vulnerable servers?**
 ```bash
-# Unified CLI (recommended)
-./smbseek.py report --countries
-
-# Legacy approach
+# Database query tools
 python3 tools/db_query.py --countries
 ```
 See the geographic distribution of vulnerable SMB servers.
 
 **Example 4: What are the most common share names?**
 ```bash
-# Unified CLI (recommended)
-./smbseek.py report --shares
-
-# Legacy approach
+# Database query tools
 python3 tools/db_query.py --shares
 ```
 Discover the most frequently found share names across all servers.
 
 **Example 5: Show me servers discovered in the last week**
 ```bash
-# Database query tool (recommended)
-python tools/db_query.py --statistics --days 7
-
-# Legacy approach
-python3 tools/db_query.py --statistics --days 7
+python3 tools/db_query.py --recent --days 7
 ```
 View recent scan activity and success rates.
 
@@ -382,39 +362,27 @@ python3 tools/db_maintenance.py --export
 
 ## 🔄 Common Workflows
 
-### Security Assessment Workflow
+### Security Assessment
 ```bash
-# Unified CLI (recommended)
-1. ./smbseek.py                    # Complete workflow
-2. ./smbseek.py report --summary       # Review results
-3. ./smbseek.py report --countries     # Focus areas
-4. ./smbseek.py database --export      # Generate report
+./smbseek.py --country US              # Run discovery + share enumeration
+python3 tools/db_query.py --summary    # Review key findings
+python3 tools/db_query.py --countries  # Identify hotspots
+python3 tools/db_maintenance.py --export  # Optional: export snapshots
 ```
 
+### Broad Recon / Research
 ```bash
-# Legacy approach (still supported)
-1. python3 tools/smb_scan.py -c US
-2. python3 tools/db_query.py --summary
-3. python3 tools/db_query.py --countries
-4. python3 tools/db_maintenance.py --export
+./smbseek.py --country US,GB,CA        # Multi-country scan
+python3 tools/db_query.py --all        # Explore comprehensive data
+python3 tools/db_query.py --shares     # Investigate common share names
 ```
 
-### Educational/Research Workflow
+### Continuous Monitoring
 ```bash
-# Unified CLI (recommended)
-1. ./smbseek.py --country US,GB,CA # Broad scan
-2. ./smbseek.py report --all           # Explore data
-3. ./smbseek.py database --query       # Custom queries
-4. ./smbseek.py database --export      # Export findings
-```
-
-### Monitoring Workflow
-```bash
-# Unified CLI (recommended)
-1. ./smbseek.py                    # Regular scans
-2. ./smbseek.py report --statistics    # Track changes
-3. ./smbseek.py database --maintenance # Database maintenance
-4. ./smbseek.py database --backup      # Backup data
+./smbseek.py                          # Use defaults for recurring scans
+python3 tools/db_query.py --recent --days 7   # Track recent changes
+python3 tools/db_maintenance.py --maintenance  # Keep database optimized
+python3 tools/db_maintenance.py --backup       # Regular backups
 ```
 
 ---
@@ -427,8 +395,8 @@ SMBSeek uses a 3-tier system to determine which countries to scan:
 
 1. **Command Line Override** (highest priority)
    ```bash
-   ./smbseek.py --country US        # Scan only United States
-   ./smbseek.py --country US,GB,CA  # Scan multiple countries
+   ./smbseek.py --country US            # Scan only United States
+   ./smbseek.py --country US,GB,CA      # Scan multiple countries
    ```
 
 2. **Configuration File Defaults** (medium priority)
@@ -599,54 +567,4 @@ Use SMBSeek results to:
 
 ---
 
-## 🖥️ GUI Frontend (xsmbseek)
-
-The xsmbseek GUI provides a user-friendly interface for SMBSeek with advanced scan configuration options.
-
-### Launching the GUI
-```bash
-# Basic GUI launch
-./xsmbseek
-
-# With specific SMBSeek installation path
-./xsmbseek --smbseek-path /path/to/smbseek
-
-# Mock mode for testing (no SMBSeek required)
-./xsmbseek --mock
-```
-
-### Advanced Scan Options
-
-The scan dialog provides comprehensive configuration options in a clean, direct interface:
-
-#### Scan Configuration Options
-All options are directly visible and immediately accessible:
-
-- **Country Code**: Specify countries to scan (e.g., US, GB, CA or US,GB,CA) - leave blank for global scan
-- **Max Shodan Results**: Limit discovery results (1-10000, default: 1000)
-- **Recent Hours Filter**: Filter for recent scan data (hours, empty for default)
-- **Rescan Options**:
-  - ☐ Rescan all existing hosts (force rescan regardless of recent scans)
-  - ☐ Rescan previously failed hosts (retry hosts that failed before)
-- **API Key Override**: Temporary Shodan API key override (masked input)
-
-#### Settings Persistence
-- Advanced options are automatically saved and restored between sessions
-- User preferences persist across application restarts
-- Settings integrate with the main configuration system
-
-#### Validation and Error Handling
-- Real-time validation for numeric fields
-- Clear error messages for invalid inputs
-- Graceful fallback when settings are unavailable
-
-### GUI Integration
-The GUI seamlessly integrates with the SMBSeek backend:
-- All CLI options available through the interface
-- Real-time progress tracking and status updates
-- Complete database access and reporting
-- Configuration management with live editing
-
----
-
-**Ready to start exploring SMB security? Use the CLI for automation or the GUI for interactive exploration!**
+**Ready to start exploring SMB security? Run your first scan and discover what's out there!**

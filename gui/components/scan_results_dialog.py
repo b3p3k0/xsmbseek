@@ -263,16 +263,26 @@ class ScanResultsDialog:
     
     def _create_success_details(self, parent: tk.Widget) -> None:
         """Create details for successful scan completion."""
-        details_text = (
-            "Scan completed successfully! The database has been updated with new findings.\n\n"
-            f"Discovered {self.scan_results.get('accessible_hosts', 0)} servers with accessible "
-            f"SMB shares out of {self.scan_results.get('hosts_scanned', 0)} servers tested."
-        )
-        
+        # Check if we have an enhanced summary message from scan results
+        summary_message = self.scan_results.get("summary_message")
+
+        if summary_message:
+            # Use enhanced summary message if available
+            details_text = f"{summary_message}\n\n"
+            details_text += f"Discovered {self.scan_results.get('accessible_hosts', 0)} servers with accessible "
+            details_text += f"SMB shares out of {self.scan_results.get('hosts_scanned', 0)} servers tested."
+        else:
+            # Fallback to default message for compatibility with existing mocks/tests
+            details_text = (
+                "Scan completed successfully! The database has been updated with new findings.\n\n"
+                f"Discovered {self.scan_results.get('accessible_hosts', 0)} servers with accessible "
+                f"SMB shares out of {self.scan_results.get('hosts_scanned', 0)} servers tested."
+            )
+
         if self.scan_results.get('shares_found', 0) > 0:
             details_text += f"\n\nFound {self.scan_results.get('shares_found', 0)} total shares "
             details_text += "available for further analysis."
-        
+
         details_label = self.theme.create_styled_label(
             parent,
             details_text,

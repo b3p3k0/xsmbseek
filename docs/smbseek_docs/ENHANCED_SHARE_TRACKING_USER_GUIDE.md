@@ -24,7 +24,7 @@ First, let's see what data you currently have:
 
 ```bash
 # Check your current database status  
-./smbseek.py database query --summary
+python3 tools/db_query.py --summary
 ```
 
 This will show you how many hosts and shares are currently tracked.

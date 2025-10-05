@@ -112,7 +112,7 @@ class AppConfigDialog:
         """Create the configuration dialog window."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("SMBSeek - Application Configuration")
-        self.dialog.geometry("700x760")
+        self.dialog.geometry("600x760")
         self.dialog.minsize(600, 700)
         
         # Apply theme

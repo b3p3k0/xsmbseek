@@ -100,7 +100,7 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("500x820")
+        self.dialog.geometry("680x1000")
         self.dialog.minsize(400, 250)
         
         # Apply theme
@@ -263,7 +263,7 @@ class ScanDialog:
         # Description
         desc_label = self.theme.create_styled_label(
             input_frame,
-            "  (1-10000, default: 1000)",
+            "  (1-1000, default: 1000)",
             "small",
             fg=self.theme.colors["text_secondary"]
         )
@@ -698,9 +698,9 @@ class ScanDialog:
         """Validate max results input."""
         try:
             value = self.max_results_var.get()
-            if value < 1 or value > 10000:
+            if value < 1 or value > 1000:
                 # Reset to valid range
-                valid_value = max(1, min(10000, value))
+                valid_value = max(1, min(1000, value))
                 self.max_results_var.set(valid_value)
         except tk.TclError:
             # Invalid integer, reset to default

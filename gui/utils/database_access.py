@@ -319,6 +319,8 @@ class DatabaseReader:
             summary = {
                 "total_servers": 7,
                 "accessible_shares": 17,
+                "servers_with_accessible_shares": 5,
+                "total_shares": 23,
                 "high_risk_vulnerabilities": 3,
                 "recent_discoveries": {
                     "discovered": 4,
@@ -346,16 +348,18 @@ class DatabaseReader:
     def _query_dashboard_summary(self) -> Dict[str, Any]:
         """Execute dashboard summary query."""
         with self._get_connection() as conn:
-            # Fixed query - counts unique shares only (no duplicates from multiple sessions)
+            # Enhanced query - includes servers with accessible shares and total shares count
             basic_query = """
-            SELECT 
+            SELECT
                 (SELECT COUNT(*) FROM smb_servers WHERE status = 'active') as total_servers,
-                (SELECT COUNT(DISTINCT CONCAT(server_id, '|', share_name)) 
+                (SELECT COUNT(DISTINCT CONCAT(server_id, '|', share_name))
                  FROM share_access WHERE accessible = 1) as accessible_shares,
-                (SELECT COUNT(*) FROM vulnerabilities 
+                (SELECT COUNT(DISTINCT server_id) FROM share_access WHERE accessible = 1) as servers_with_accessible_shares,
+                (SELECT COUNT(DISTINCT CONCAT(server_id, '|', share_name)) FROM share_access) as total_shares,
+                (SELECT COUNT(*) FROM vulnerabilities
                  WHERE severity IN ('high', 'critical') AND status = 'open') as high_risk_vulnerabilities
             """
-            
+
             result = conn.execute(basic_query).fetchone()
             
             # Get recent discoveries from most recent completed scan session
@@ -402,6 +406,8 @@ class DatabaseReader:
             return {
                 "total_servers": result["total_servers"] or 0,
                 "accessible_shares": result["accessible_shares"] or 0,
+                "servers_with_accessible_shares": result["servers_with_accessible_shares"] or 0,
+                "total_shares": result["total_shares"] or 0,
                 "high_risk_vulnerabilities": result["high_risk_vulnerabilities"] or 0,
                 "recent_discoveries": recent_discoveries,
                 "last_scan": last_scan_result["last_scan"] or "Never",

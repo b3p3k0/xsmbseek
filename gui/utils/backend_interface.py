@@ -25,14 +25,15 @@ from pathlib import Path
 class BackendInterface:
     """
     Interface for communicating with SMBSeek backend via subprocess calls.
-    
+
     Provides methods for executing CLI commands, parsing output, and tracking
     progress for long-running operations. All communication is through the
     existing CLI interface to avoid backend modifications.
-    
+
     Design Pattern: Complete backend isolation with graceful error handling
     and user-friendly progress updates.
     """
+
     
     def __init__(self, backend_path: str = "./smbseek", mock_mode: bool = False):
         """
@@ -1438,19 +1439,23 @@ class BackendInterface:
         # Ensure we don't exceed the phase range
         return min(end, max(start, mapped_percentage))
     
+
     def _parse_final_results(self, output: str) -> Dict:
         """
         Parse final results from CLI output.
-        
+
         Args:
             output: Complete CLI output text
-            
+
         Returns:
             Dictionary with parsed results
-            
+
         Implementation: Regex patterns extract key statistics from the
         "Discovery Results" section of CLI output.
         """
+        # Strip ANSI escape sequences once for both regex extraction and success detection
+        cleaned_output = re.sub(r'\x1B\[[0-9;]*m', '', output)
+
         results = {
             "success": False,
             "shodan_results": 0,
@@ -1460,29 +1465,34 @@ class BackendInterface:
             "session_id": None,
             "raw_output": output
         }
-        
+
+        # Detect explicit Shodan credit errors and surface them
+        shodan_error_match = re.search(r'Shodan API error:\s*(.+)', cleaned_output, re.IGNORECASE)
+        if shodan_error_match:
+            results["error"] = shodan_error_match.group(0).lstrip('✗❌ ').strip()
+            return results
+
         # Parse results section
         patterns = {
-            "shodan_results": r'Shodan Results: (\d+)',
-            "hosts_tested": r'Hosts Tested: (\d+)',
-            "successful_auth": r'Successful Auth: (\d+)',
-            "failed_auth": r'Failed Auth: (\d+)',
+            "shodan_results": r'Shodan Results: (\d[\d,]*)',
+            "hosts_tested": r'Hosts Tested: (\d[\d,]*)',
+            "successful_auth": r'Successful Auth: (\d[\d,]*)',
+            "failed_auth": r'Failed Auth: (\d[\d,]*)',
             "session_id": r'session: (\d+)'
         }
-        
+
         for key, pattern in patterns.items():
-            match = re.search(pattern, output)
+            match = re.search(pattern, cleaned_output)
             if match:
-                value = match.group(1)
+                value = match.group(1).replace(',', '')  # Strip commas before int conversion
                 results[key] = int(value) if value.isdigit() else value
-        
-        # Check for success indicators
-        # Scan is successful if it completed without fatal errors
-        if ("🎉 SMBSeek security assessment completed successfully!" in output or
-            ("✓ Found" in output and "accessible SMB servers" in output) or
-            "✓ Discovery completed:" in output):
+
+        # Check for success indicators using cleaned output
+        if ("🎉 SMBSeek security assessment completed successfully!" in cleaned_output or
+            ("✓ Found" in cleaned_output and "accessible SMB servers" in cleaned_output) or
+            "✓ Discovery completed:" in cleaned_output):
             results["success"] = True
-        
+
         return results
     
     def _parse_summary_output(self, output: str) -> Dict:

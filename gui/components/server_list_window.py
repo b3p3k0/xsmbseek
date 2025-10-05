@@ -68,8 +68,9 @@ class ServerListWindow:
         self.window_data = window_data or {}
         self.settings_manager = settings_manager
 
-        # Favorites functionality
+        # Favorites and avoid functionality
         self.favorites_only = tk.BooleanVar()
+        self.avoid_only = tk.BooleanVar()
         
         # Window and UI components
         self.window = None
@@ -86,7 +87,7 @@ class ServerListWindow:
         self.search_text = tk.StringVar()
         self.search_var = tk.StringVar()  # Additional search reference
         self.date_filter = tk.StringVar(value="All")
-        self.shares_filter = tk.StringVar(value="All")
+        self.shares_filter = tk.BooleanVar(value=True)  # Fixed: BooleanVar for checkbox, default checked to hide zero-share servers
         
         # Filter UI components - simplified
         self.advanced_filters_frame = None
@@ -111,7 +112,21 @@ class ServerListWindow:
         
         # Window state
         self.is_advanced_mode = False
-        
+
+        # Sort state tracking for bidirectional column sorting
+        self.current_sort_column = None
+        self.current_sort_direction = None
+        self.original_headers = {}  # Cache original column text for clean restoration
+
+        # Default sort directions for each column
+        self.default_sort_directions = {
+            "IP Address": "asc",      # alphabetical A-Z
+            "Shares": "desc",         # high numbers first (10, 5, 1)
+            "Accessible": "desc",     # high share count first (sorts by number of shares)
+            "Last Seen": "desc",      # MOST RECENT dates first (2024-01-02, 2024-01-01, 2023-12-31)
+            "Country": "asc"          # alphabetical A-Z
+        }
+
         self._create_window()
         self._load_data()
     
@@ -246,6 +261,19 @@ class ServerListWindow:
             self.favorites_checkbox.configure(state="disabled")
         self.theme.apply_to_widget(self.favorites_checkbox, "checkbox")
         self.favorites_checkbox.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Avoid only filter checkbox
+        self.avoid_checkbox = tk.Checkbutton(
+            search_frame,
+            text="Avoid only",
+            variable=self.avoid_only,
+            command=self._apply_filters
+        )
+        # Disable if no settings manager available
+        if not self.settings_manager:
+            self.avoid_checkbox.configure(state="disabled")
+        self.theme.apply_to_widget(self.avoid_checkbox, "checkbox")
+        self.avoid_checkbox.pack(side=tk.LEFT, padx=(0, 10))
         
         # Show all results toggle (if we started with filtered results)
         if self.filter_recent:
@@ -316,14 +344,15 @@ class ServerListWindow:
         self.theme.apply_to_widget(self.table_frame, "main_window")
         self.table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Define columns - updated for enhanced share tracking with favorites
+        # Define columns - updated for enhanced share tracking with favorites and avoid
         columns = (
             "favorite",
+            "avoid",
             "IP Address",
             "Shares",
             "Accessible",
             "Last Seen",
-            "Scan Count"
+            "Country"
         )
         
         # Create treeview
@@ -334,19 +363,22 @@ class ServerListWindow:
             selectmode="extended"
         )
         
-        # Configure columns - optimized dimensions for enhanced share tracking with favorites
+        # Configure columns - optimized dimensions for enhanced share tracking with favorites and avoid
         self.tree.column("#0", width=0, stretch=False)  # Hide tree column
         self.tree.column("favorite", width=40, anchor="center")  # Favorite star column
+        self.tree.column("avoid", width=40, anchor="center")  # Avoid skull column
         self.tree.column("IP Address", width=160, anchor="w")
         self.tree.column("Shares", width=100, anchor="center")
-        self.tree.column("Accessible", width=900, anchor="w")  # Extra wide for extensive share lists
-        self.tree.column("Last Seen", width=200, anchor="w")
-        self.tree.column("Scan Count", width=100, anchor="center", stretch=True)  # Flexible width
+        self.tree.column("Accessible", width=780, anchor="w")  # Wide for extensive share lists
+        self.tree.column("Last Seen", width=150, anchor="w")
+        self.tree.column("Country", width=100, anchor="w", stretch=True)  # Flexible width
         
         # Configure headings
         for col in columns:
             if col == "favorite":
                 self.tree.heading(col, text="★", command=lambda c=col: self._sort_by_column(c))
+            elif col == "avoid":
+                self.tree.heading(col, text="☠", command=lambda c=col: self._sort_by_column(c))
             else:
                 self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
         
@@ -419,7 +451,21 @@ class ServerListWindow:
         )
         self.theme.apply_to_widget(export_all_button, "button_primary")
         export_all_button.pack(side=tk.LEFT)
-    
+
+    def _set_header_text(self, column: str, text: str) -> None:
+        """Helper to update column header text."""
+        self.tree.heading(column, text=text)
+
+    def _reset_sort_state(self) -> None:
+        """Reset sort state and restore all headers to original text."""
+        # Restore all headers to original text
+        for column, original_text in self.original_headers.items():
+            self._set_header_text(column, original_text)
+
+        # Clear sort state
+        self.current_sort_column = None
+        self.current_sort_direction = None
+
     def _setup_event_handlers(self) -> None:
         """Setup event handlers for the window."""
         # Table selection events
@@ -500,9 +546,12 @@ class ServerListWindow:
             if self.filter_recent and self.last_scan_time:
                 self.date_combo.set("Since Last Scan")
             
+            # Reset sort state for fresh dataset
+            self._reset_sort_state()
+
             # Apply initial filters and display data
             self._apply_filters()
-            
+
             # Update count display
             self.count_label.configure(text=f"Total: {len(self.all_servers)} servers")
             
@@ -546,6 +595,11 @@ class ServerListWindow:
         if self.favorites_only.get() and self.settings_manager:
             favorite_ips = self.settings_manager.get_favorite_servers()
             filtered = [server for server in filtered if server.get("ip_address") in favorite_ips]
+
+        # Apply avoid filter
+        if self.avoid_only.get() and self.settings_manager:
+            avoid_ips = self.settings_manager.get_avoid_servers()
+            filtered = [server for server in filtered if server.get("ip_address") in avoid_ips]
 
         self.filtered_servers = filtered
         self._update_table_display()
@@ -616,7 +670,7 @@ class ServerListWindow:
             shares_count = str(server.get("accessible_shares", 0))
             accessible_shares = server.get("accessible_shares_list", "")
             last_seen = server.get("last_seen", "Never")
-            scan_count = str(server.get("scan_count", 0))
+            country = server.get("country", "Unknown")
             
             # Format last seen date
             if last_seen and last_seen != "Never":
@@ -637,11 +691,17 @@ class ServerListWindow:
             else:
                 star = "☆"
 
-            # Insert row with new column structure including favorite star
+            # Determine avoid skull
+            if self.settings_manager and self.settings_manager.is_avoid_server(ip_addr):
+                skull = "☠"
+            else:
+                skull = "💀"
+
+            # Insert row with new column structure including favorite star and avoid skull
             item_id = self.tree.insert(
                 "",
                 "end",
-                values=(star, ip_addr, shares_count, accessible_shares, last_seen, scan_count)
+                values=(star, skull, ip_addr, shares_count, accessible_shares, last_seen, country)
             )
             
             # Add visual indicators for shares count
@@ -657,23 +717,50 @@ class ServerListWindow:
         )
     
     def _sort_by_column(self, column: str) -> None:
-        """Sort table by specified column."""
-        # Ignore clicks on favorite column - no meaningful sort order
-        if column == "favorite":
+        """Sort table by specified column with bidirectional toggle support."""
+        # Short-circuit for favorite and avoid columns - no meaningful sort order
+        if column in ("favorite", "avoid"):
             return
+
+        # Cache original header text on first access to this column
+        if column not in self.original_headers:
+            # Get current header text (remove any existing indicators)
+            current_text = self.tree.heading(column)["text"]
+            # Clean text by removing any existing indicators
+            clean_text = current_text.replace(" (↑)", "").replace(" (↓)", "")
+            self.original_headers[column] = clean_text
+
+        # Determine sort direction
+        if self.current_sort_column == column:
+            # Same column clicked - toggle direction
+            self.current_sort_direction = "asc" if self.current_sort_direction == "desc" else "desc"
+        else:
+            # Different column clicked - use default direction for this column
+            self.current_sort_direction = self.default_sort_directions.get(column, "desc")
+
+            # Clear previous column's indicator if there was one
+            if self.current_sort_column and self.current_sort_column in self.original_headers:
+                self._set_header_text(self.current_sort_column, self.original_headers[self.current_sort_column])
+
+            # Update current column
+            self.current_sort_column = column
+
+        # Preserve selection and focus before sorting
+        selected_items = list(self.tree.selection())
+        focused_item = self.tree.focus()
 
         # Get current data with sort key
         data_with_keys = []
-        
+
         for item in self.tree.get_children():
             values = self.tree.item(item)["values"]
-            
+
             # Determine sort key based on column
             col_index = self.tree["columns"].index(column)
             sort_key = values[col_index]
-            
-            # Convert to appropriate type for sorting - updated for new columns
-            if column in ["Shares", "Scan Count"]:
+
+            # Convert to appropriate type for sorting
+            if column == "Shares":
                 # Extract number from string (remove emojis)
                 import re
                 numbers = re.findall(r'\d+', str(sort_key))
@@ -687,15 +774,30 @@ class ServerListWindow:
             elif column == "Accessible":
                 # Sort by length of accessible shares list (number of shares)
                 sort_key = len(str(sort_key).split(",")) if str(sort_key).strip() else 0
-            
+
             data_with_keys.append((sort_key, item, values))
-        
-        # Sort and update display
-        data_with_keys.sort(key=lambda x: x[0], reverse=True)
-        
+
+        # Sort with correct direction
+        reverse_sort = (self.current_sort_direction == "desc")
+        data_with_keys.sort(key=lambda x: x[0], reverse=reverse_sort)
+
         # Rearrange items in tree
         for index, (_, item, _) in enumerate(data_with_keys):
             self.tree.move(item, "", index)
+
+        # Update header with visual indicator
+        indicator = " (↓)" if self.current_sort_direction == "desc" else " (↑)"
+        self._set_header_text(column, f"{self.original_headers[column]}{indicator}")
+
+        # Restore selection and focus
+        if selected_items:
+            # Filter out any items that no longer exist
+            valid_items = [item for item in selected_items if self.tree.exists(item)]
+            if valid_items:
+                self.tree.selection_set(valid_items)
+
+        if focused_item and self.tree.exists(focused_item):
+            self.tree.focus(focused_item)
     
     def _on_selection_changed(self, event=None) -> None:
         """Handle table selection changes."""
@@ -711,9 +813,14 @@ class ServerListWindow:
     
     def _on_double_click(self, event) -> None:
         """Handle double-click on table row - equivalent to select + View Details button."""
+        # Check if the double-click was on a header - if so, ignore to prevent popup interference
+        region = self.tree.identify_region(event.x, event.y)
+        if region == "heading":
+            return
+
         # File browser UX: identify exactly which row was double-clicked
         clicked_item = self.tree.identify_row(event.y)
-        
+
         if not clicked_item:
             # Error handling: double-click didn't hit a valid data row
             messagebox.showwarning("Invalid Selection", "Please double-click on a server entry to view details.")
@@ -728,7 +835,7 @@ class ServerListWindow:
             messagebox.showerror("Error", "Unable to retrieve server data.")
             return
 
-        ip_address = values[1]  # IP Address is now at index 1 due to favorite column
+        ip_address = values[2]  # IP Address is now at index 2 due to favorite and avoid columns
         
         # Same data lookup as working "View Details" button
         server_data = next(
@@ -745,18 +852,21 @@ class ServerListWindow:
         self._show_server_detail_popup(server_data)
 
     def _on_treeview_click(self, event) -> None:
-        """Handle treeview clicks, specifically for favorite column toggles."""
+        """Handle treeview clicks, specifically for favorite and avoid column toggles."""
         column = self.tree.identify_column(event.x)
         item = self.tree.identify_row(event.y)
 
-        # Only handle favorite column clicks (#1, since #0 hidden)
-        if column == '#1' and item and self.settings_manager:
-            values = self.tree.item(item)["values"]
-            if not values or len(values) < 2:
-                return
+        if not item or not self.settings_manager:
+            return
 
-            ip_address = values[1]  # IP is at index 1
+        values = self.tree.item(item)["values"]
+        if not values or len(values) < 3:
+            return
 
+        ip_address = values[2]  # IP is at index 2
+
+        # Handle favorite column clicks (#1, since #0 hidden)
+        if column == '#1':
             # Toggle favorite status
             is_now_favorite = self.settings_manager.toggle_favorite_server(ip_address)
             star = "★" if is_now_favorite else "☆"
@@ -764,6 +874,23 @@ class ServerListWindow:
 
             # Re-apply filters if favorites-only is enabled
             if self.favorites_only.get():
+                self._apply_filters()
+
+            # Maintain focus and selection for keyboard navigation
+            self.tree.selection_set(item)
+            self.tree.focus(item)
+
+            return "break"  # Only consume event when we actually toggled
+
+        # Handle avoid column clicks (#2)
+        elif column == '#2':
+            # Toggle avoid status
+            is_now_avoided = self.settings_manager.toggle_avoid_server(ip_address)
+            skull = "☠" if is_now_avoided else "💀"
+            self.tree.set(item, "avoid", skull)
+
+            # Re-apply filters if avoid-only is enabled
+            if self.avoid_only.get():
                 self._apply_filters()
 
             # Maintain focus and selection for keyboard navigation
@@ -791,7 +918,7 @@ class ServerListWindow:
         # Get server data - updated for new column structure
         item = selected_items[0]
         values = self.tree.item(item)["values"]
-        ip_address = values[1]  # IP Address is now at index 1 due to favorite column
+        ip_address = values[2]  # IP Address is now at index 2 due to favorite and avoid columns
         
         # Find server in data
         server_data = next(
@@ -984,7 +1111,7 @@ class ServerListWindow:
         selected_ips = []
         for item in selected_items:
             values = self.tree.item(item)["values"]
-            selected_ips.append(values[1])  # IP address is now at index 1 due to favorite column
+            selected_ips.append(values[2])  # IP address is now at index 2 due to favorite and avoid columns
         
         selected_servers = [
             server for server in self.filtered_servers
@@ -1173,7 +1300,9 @@ class ServerListWindow:
         """Reset all filters to default values - simplified for enhanced tracking."""
         self.search_text.set("")
         self.date_filter.set("All")
-        self.shares_filter.set("")
+        self.shares_filter.set(False)  # Fixed: BooleanVar uses False, not empty string
+        self.favorites_only.set(False)
+        self.avoid_only.set(False)
         self._apply_filters()
     
     def _refresh_data(self) -> None:

@@ -87,7 +87,7 @@ class XSMBSeekConfig:
             },
             "gui": {
                 "theme": "default",
-                "window_geometry": "800x250",
+                "window_geometry": "900x250",
                 "interface_mode": "simple",
                 "last_used_config": None
             },
@@ -509,7 +509,7 @@ class XSMBSeekGUI:
         # Set window geometry from config
         geometry = self.config.config["gui"]["window_geometry"]
         self.root.geometry(geometry)
-        self.root.minsize(800, 240)
+        self.root.minsize(900, 240)
         
         # Apply theme
         apply_theme_to_window(self.root)
@@ -537,7 +537,7 @@ class XSMBSeekGUI:
         """
         # Force our intended dimensions instead of querying auto-sized dimensions
         # This prevents tkinter from expanding the window based on content
-        target_width = 800   # Intended width for dashboard
+        target_width = 900   # Intended width for dashboard
         target_height = 250  # Intended height with progress bar space
         
         # Calculate center position based on intended dimensions
@@ -557,7 +557,7 @@ class XSMBSeekGUI:
         but allows users to manually resize larger without forcing back to defaults.
         Implements industry-standard UX behavior for window management.
         """
-        min_width = 800
+        min_width = 900
         min_height = 240
         
         # Get current geometry

@@ -272,7 +272,9 @@ class DashboardWidget:
             anchor="center",
             bg=self.theme.colors["card_bg"],
             fg=self.theme.colors["text_secondary"],
-            font=self.theme.fonts["small"]
+            font=self.theme.fonts["small"],
+            wraplength=520,      # fits card width on default layout
+            justify="center"
         )
         progress_detail_label.pack(pady=(0, 10))
         
@@ -328,8 +330,10 @@ class DashboardWidget:
         """Update status bar information."""
         # Main status
         total_servers = summary.get("total_servers", 0)
+        servers_with_accessible_shares = summary.get("servers_with_accessible_shares", 0)
+        total_shares = summary.get("total_shares", 0)
         last_scan = summary.get("last_scan", "Never")
-        
+
         if last_scan != "Never":
             # Format last scan time
             try:
@@ -339,8 +343,8 @@ class DashboardWidget:
                 formatted_time = "Unknown"
         else:
             formatted_time = "Never"
-        
-        status_text = f"Ready | Last Scan: {formatted_time} | DB: {total_servers:,} servers"
+
+        status_text = f"Ready | Last Scan: {formatted_time} | DB: {total_servers:,} servers, {servers_with_accessible_shares:,} with accessible shares, {total_shares:,} total shares"
         self.status_text.set(status_text)
         
         # Update time
@@ -448,7 +452,9 @@ class DashboardWidget:
             parent=self.parent,
             config_path=self.config_path,
             config_editor_callback=self._open_config_editor_from_scan,
-            scan_start_callback=self._start_new_scan
+            scan_start_callback=self._start_new_scan,
+            backend_interface=self.backend_interface,
+            settings_manager=getattr(self, 'settings_manager', None)
         )
     
     def _open_config_editor_from_scan(self, config_path: str) -> None:
@@ -456,21 +462,21 @@ class DashboardWidget:
         if self.config_editor_callback:
             self.config_editor_callback(config_path)
     
-    def _start_new_scan(self, country: Optional[str]) -> None:
-        """Start new scan with specified parameters."""
+    def _start_new_scan(self, scan_options: dict) -> None:
+        """Start new scan with specified options."""
         try:
             # Final check for external scans before starting
             self._check_external_scans()
             if self.scan_button_state != "idle":
                 return  # External scan detected, don't proceed
-            
+
             # Get backend path for external SMBSeek installation
             backend_path = getattr(self.backend_interface, "backend_path", "./smbseek")
             backend_path = str(backend_path)
-            
-            # Start scan via scan manager
+
+            # Start scan via scan manager with new options
             success = self.scan_manager.start_scan(
-                country=country,
+                scan_options=scan_options,
                 backend_path=backend_path,
                 progress_callback=self._handle_scan_progress
             )
@@ -480,6 +486,7 @@ class DashboardWidget:
                 self._update_scan_button_state("scanning")
                 
                 # Show progress display
+                country = scan_options.get('country')
                 self._show_scan_progress(country)
                 
                 # Start monitoring scan completion
@@ -593,16 +600,32 @@ class DashboardWidget:
         def check_completion():
             try:
                 if not self.scan_manager.is_scanning:
-                    # Scan completed - reset button state first
-                    self._update_scan_button_state("idle")
-                    
-                    # Get results and show
+                    # Get results first to check status
                     results = self.scan_manager.get_scan_results()
-                    self._show_scan_results(results)
-                    
-                    # Hide progress display
+
+                    # Always hide progress section for layout consistency
                     self._hide_progress_section()
-                    
+
+                    # Reset button state to idle
+                    self._update_scan_button_state("idle")
+
+                    # Handle cancelled scans differently
+                    if results and results.get("status") == "cancelled":
+                        # Show lightweight info message for cancelled scan
+                        try:
+                            import tkinter.messagebox as msgbox
+                            msgbox.showinfo(
+                                "Scan Cancelled",
+                                "Scan was cancelled by user request."
+                            )
+                        except Exception:
+                            # Fallback - just print message
+                            print("Scan cancelled by user")
+                    elif results:
+                        # Show normal results dialog for completed/failed scans
+                        self._show_scan_results(results)
+                    # If no results, scan may have been cancelled before any results were recorded
+
                     # Refresh dashboard data with cache invalidation
                     try:
                         self._refresh_after_scan_completion()
@@ -817,12 +840,14 @@ class DashboardWidget:
         self.theme.apply_to_widget(self.scan_button, "button_disabled")
     
     def _set_button_to_stopping(self) -> None:
-        """Configure button for stopping state."""
+        """Configure button for stopping state with warning color."""
         self.scan_button.config(
-            text="⬛ Stopping...",
+            text="⏳ Stopping...",
             state="disabled"
         )
-        self.theme.apply_to_widget(self.scan_button, "button_danger")
+        # Apply secondary theme first, then override with warning color
+        self.theme.apply_to_widget(self.scan_button, "button_secondary")
+        self.scan_button.config(bg=self.theme.colors["warning"])
     
     def _set_button_to_error(self) -> None:
         """Configure button for error state."""
