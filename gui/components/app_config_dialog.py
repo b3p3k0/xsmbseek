@@ -16,7 +16,7 @@ import os
 import json
 import subprocess
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 import sys
 
 # Add utils to path for imports
@@ -70,6 +70,25 @@ class AppConfigDialog:
             'config': {'valid': False, 'message': ''},
             'database': {'valid': False, 'message': ''}
         }
+
+        # Backend concurrency controls (new backend thread pool settings)
+        self.concurrency_min = 1
+        self.concurrency_upper_limit = 256
+        self.concurrency_max = 64  # Default upper bound; expands if config uses higher values
+        self.concurrency_values = {
+            'discovery': self.concurrency_min,
+            'access': self.concurrency_min
+        }
+        self.concurrency_status = {
+            'message': '',
+            'color': self.theme.colors.get('text_secondary', '#666666')
+        }
+        self.discovery_concurrency_var = None
+        self.access_concurrency_var = None
+        self.discovery_spinbox = None
+        self.access_spinbox = None
+        self.concurrency_status_label = None
+        self.concurrency_range_label = None
         
         # UI components
         self.dialog = None
@@ -107,6 +126,8 @@ class AppConfigDialog:
             self.smbseek_path = "./smbseek"
             self.config_path = "./smbseek/conf/config.json"
             self.database_path = "./smbseek/smbseek.db"
+
+        self._load_concurrency_settings(self.config_path)
     
     def _create_dialog(self) -> None:
         """Create the configuration dialog window."""
@@ -197,7 +218,359 @@ class AppConfigDialog:
             "config",
             show_edit_button=True
         )
-    
+
+        # Backend concurrency settings (discovery + access thread pools)
+        self._create_concurrency_section(main_frame)
+
+    def _create_concurrency_section(self, parent: tk.Widget) -> None:
+        """Create settings section for backend concurrency limits."""
+        section_frame = tk.LabelFrame(parent, text="Backend Concurrency", font=("Arial", 12, "bold"))
+        self.theme.apply_to_widget(section_frame, "card")
+        section_frame.pack(fill=tk.X, pady=(0, 15), padx=5, ipady=10)
+
+        desc_text = (
+            "Control how many hosts SMBSeek processes simultaneously. Higher values "
+            "increase network load - adjust rate limiting (connection delays) when raising these limits."
+        )
+        desc_label = tk.Label(section_frame, text=desc_text, font=("Arial", 9), wraplength=560, justify=tk.LEFT)
+        self.theme.apply_to_widget(desc_label, "text")
+        desc_label.pack(anchor=tk.W, padx=15, pady=(5, 10))
+
+        inputs_frame = tk.Frame(section_frame)
+        self.theme.apply_to_widget(inputs_frame, "card")
+        inputs_frame.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        validate_cmd = self.dialog.register(self._validate_concurrency_input)
+
+        if self.discovery_concurrency_var is None:
+            self.discovery_concurrency_var = tk.StringVar(value=str(self.concurrency_values['discovery']))
+        if self.access_concurrency_var is None:
+            self.access_concurrency_var = tk.StringVar(value=str(self.concurrency_values['access']))
+
+        discovery_row = tk.Frame(inputs_frame)
+        self.theme.apply_to_widget(discovery_row, "card")
+        discovery_row.pack(fill=tk.X, pady=(0, 5))
+
+        discovery_label = tk.Label(discovery_row, text="Discovery max concurrent hosts:", font=("Arial", 10, "bold"))
+        self.theme.apply_to_widget(discovery_label, "text")
+        discovery_label.pack(side=tk.LEFT)
+
+        self.discovery_spinbox = tk.Spinbox(
+            discovery_row,
+            from_=self.concurrency_min,
+            to=self.concurrency_max,
+            textvariable=self.discovery_concurrency_var,
+            width=6,
+            validate='key',
+            validatecommand=(validate_cmd, '%P')
+        )
+        self.theme.apply_to_widget(self.discovery_spinbox, "entry")
+        self.discovery_spinbox.pack(side=tk.LEFT, padx=(10, 0))
+
+        discovery_hint = tk.Label(
+            discovery_row,
+            text="Hosts authenticated in parallel during discovery",
+            font=("Arial", 9)
+        )
+        self.theme.apply_to_widget(discovery_hint, "text")
+        discovery_hint.pack(side=tk.LEFT, padx=(10, 0))
+
+        access_row = tk.Frame(inputs_frame)
+        self.theme.apply_to_widget(access_row, "card")
+        access_row.pack(fill=tk.X, pady=(0, 5))
+
+        access_label = tk.Label(access_row, text="Access max concurrent hosts:", font=("Arial", 10, "bold"))
+        self.theme.apply_to_widget(access_label, "text")
+        access_label.pack(side=tk.LEFT)
+
+        self.access_spinbox = tk.Spinbox(
+            access_row,
+            from_=self.concurrency_min,
+            to=self.concurrency_max,
+            textvariable=self.access_concurrency_var,
+            width=6,
+            validate='key',
+            validatecommand=(validate_cmd, '%P')
+        )
+        self.theme.apply_to_widget(self.access_spinbox, "entry")
+        self.access_spinbox.pack(side=tk.LEFT, padx=(10, 0))
+
+        access_hint = tk.Label(
+            access_row,
+            text="Hosts enumerated in parallel during access",
+            font=("Arial", 9)
+        )
+        self.theme.apply_to_widget(access_hint, "text")
+        access_hint.pack(side=tk.LEFT, padx=(10, 0))
+
+        range_text = f"Allowed range: {self.concurrency_min} - {self.concurrency_max} hosts"
+        self.concurrency_range_label = tk.Label(section_frame, text=range_text, font=("Arial", 9))
+        self.theme.apply_to_widget(self.concurrency_range_label, "text")
+        self.concurrency_range_label.pack(anchor=tk.W, padx=15, pady=(0, 5))
+
+        status_frame = tk.Frame(section_frame)
+        self.theme.apply_to_widget(status_frame, "card")
+        status_frame.pack(fill=tk.X, padx=15, pady=(0, 5))
+
+        self.concurrency_status_label = tk.Label(status_frame, font=("Arial", 9))
+        self.theme.apply_to_widget(self.concurrency_status_label, "text")
+        self.concurrency_status_label.pack(anchor=tk.W)
+
+        guidance = (
+            "Tip: When increasing concurrency also raise `connection.rate_limit_delay` "
+            "and `connection.share_access_delay` to avoid overwhelming targets."
+        )
+        guidance_label = tk.Label(section_frame, text=guidance, font=("Arial", 9), wraplength=560, justify=tk.LEFT)
+        self.theme.apply_to_widget(guidance_label, "text")
+        guidance_label.pack(anchor=tk.W, padx=15, pady=(5, 0))
+
+        self._refresh_concurrency_inputs()
+
+    def _load_concurrency_settings(self, config_path: str) -> None:
+        """Load concurrency settings from SMBSeek configuration file."""
+        default_values = {
+            'discovery': self.concurrency_min,
+            'access': self.concurrency_min
+        }
+        values = default_values.copy()
+
+        success_color = self.theme.colors.get('success', 'green')
+        warning_color = self.theme.colors.get('warning', 'orange')
+        error_color = self.theme.colors.get('error', 'red')
+
+        if not config_path:
+            self.concurrency_values = values
+            self.concurrency_status = {
+                'message': '⚠️ No SMBSeek configuration file selected; using defaults.',
+                'color': warning_color
+            }
+            self._refresh_concurrency_inputs()
+            return
+
+        config_file = Path(config_path)
+        if not config_file.exists():
+            self.concurrency_values = values
+            self.concurrency_status = {
+                'message': '⚠️ Configuration file not found. Defaults will be saved once the file exists.',
+                'color': warning_color
+            }
+            self._refresh_concurrency_inputs()
+            return
+
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError:
+            self.concurrency_values = values
+            self.concurrency_status = {
+                'message': '❌ Failed to parse configuration JSON. Defaults loaded.',
+                'color': error_color
+            }
+            self._refresh_concurrency_inputs()
+            return
+        except Exception as exc:
+            self.concurrency_values = values
+            self.concurrency_status = {
+                'message': f'❌ Error reading configuration: {str(exc)[:60]}',
+                'color': error_color
+            }
+            self._refresh_concurrency_inputs()
+            return
+
+        if not isinstance(data, dict):
+            self.concurrency_values = values
+            self.concurrency_status = {
+                'message': '❌ Invalid configuration structure. Defaults loaded.',
+                'color': error_color
+            }
+            self._refresh_concurrency_inputs()
+            return
+
+        missing_keys: List[str] = []
+
+        discovery_value = data.get('discovery', {}).get('max_concurrent_hosts')
+        if isinstance(discovery_value, int) and discovery_value >= self.concurrency_min:
+            values['discovery'] = discovery_value
+        else:
+            missing_keys.append('discovery.max_concurrent_hosts')
+
+        access_value = data.get('access', {}).get('max_concurrent_hosts')
+        if isinstance(access_value, int) and access_value >= self.concurrency_min:
+            values['access'] = access_value
+        else:
+            missing_keys.append('access.max_concurrent_hosts')
+
+        self.concurrency_values = values
+        self.concurrency_max = min(
+            self.concurrency_upper_limit,
+            max(self.concurrency_max, values['discovery'], values['access'])
+        )
+
+        if missing_keys:
+            joined = ', '.join(missing_keys)
+            self.concurrency_status = {
+                'message': f'⚠️ Missing concurrency keys in config ({joined}); defaults used for those values.',
+                'color': warning_color
+            }
+        else:
+            self.concurrency_status = {
+                'message': '✅ Concurrency settings loaded from configuration.',
+                'color': success_color
+            }
+
+        self._refresh_concurrency_inputs()
+
+    def _refresh_concurrency_inputs(self) -> None:
+        """Refresh spinboxes and status labels with current concurrency values."""
+        discovery_value = str(self.concurrency_values['discovery'])
+        access_value = str(self.concurrency_values['access'])
+
+        if self.discovery_concurrency_var is not None:
+            self.discovery_concurrency_var.set(discovery_value)
+        if self.access_concurrency_var is not None:
+            self.access_concurrency_var.set(access_value)
+
+        if self.discovery_spinbox is not None:
+            self.discovery_spinbox.config(from_=self.concurrency_min, to=self.concurrency_max)
+        if self.access_spinbox is not None:
+            self.access_spinbox.config(from_=self.concurrency_min, to=self.concurrency_max)
+
+        if self.concurrency_range_label is not None:
+            range_text = f"Allowed range: {self.concurrency_min} - {self.concurrency_max} hosts"
+            self.concurrency_range_label.config(text=range_text)
+
+        if self.concurrency_status_label is not None and self.concurrency_status['message']:
+            self.concurrency_status_label.config(
+                text=self.concurrency_status['message'],
+                fg=self.concurrency_status['color']
+            )
+
+    def _validate_concurrency_input(self, proposed: str) -> bool:
+        """Validate spinbox input for concurrency values."""
+        if proposed == "":
+            # Allow temporary empty value while editing
+            return True
+
+        if not proposed.isdigit():
+            return False
+
+        value = int(proposed)
+        if value < self.concurrency_min or value > self.concurrency_upper_limit:
+            return False
+
+        if value > self.concurrency_max:
+            self.concurrency_max = value
+            self._refresh_concurrency_inputs()
+
+        return True
+
+    def _get_concurrency_settings(self) -> Optional[Dict[str, int]]:
+        """Collect and validate concurrency settings from the UI."""
+        if not self.discovery_concurrency_var or not self.access_concurrency_var:
+            return {
+                'discovery': self.concurrency_values['discovery'],
+                'access': self.concurrency_values['access']
+            }
+
+        try:
+            discovery = int(self.discovery_concurrency_var.get())
+            access = int(self.access_concurrency_var.get())
+        except (TypeError, ValueError):
+            messagebox.showerror(
+                "Invalid Concurrency Value",
+                "Please enter numeric values for maximum concurrent hosts."
+            )
+            return None
+
+        errors: List[str] = []
+        for label, value in (
+            ("Discovery", discovery),
+            ("Access", access)
+        ):
+            if value < self.concurrency_min or value > self.concurrency_upper_limit:
+                errors.append(f"{label} value must be between {self.concurrency_min} and {self.concurrency_upper_limit}")
+
+        if errors:
+            messagebox.showerror(
+                "Concurrency Out of Range",
+                "\n".join(errors)
+            )
+            return None
+
+        self.concurrency_values = {
+            'discovery': discovery,
+            'access': access
+        }
+        return self.concurrency_values
+
+    def _save_concurrency_settings(self, settings: Dict[str, int]) -> bool:
+        """Persist concurrency settings into the SMBSeek configuration file."""
+        config_path = self.config_var.get()
+        if not config_path:
+            messagebox.showerror(
+                "Missing Configuration",
+                "Please specify the SMBSeek configuration file before saving concurrency settings."
+            )
+            return False
+
+        config_file = Path(config_path)
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+
+        source_data = None
+        if config_file.exists():
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    source_data = json.load(f)
+            except json.JSONDecodeError:
+                messagebox.showerror(
+                    "Invalid Configuration",
+                    "The SMBSeek configuration file contains invalid JSON. Please fix the file or open it in the editor."
+                )
+                return False
+            except Exception as exc:
+                messagebox.showerror(
+                    "Configuration Read Error",
+                    f"Unable to read configuration file:\n{str(exc)}"
+                )
+                return False
+        else:
+            example_path = Path(self.smbseek_var.get() or "./smbseek") / "conf" / "config.json.example"
+            if example_path.exists():
+                try:
+                    with open(example_path, 'r', encoding='utf-8') as f:
+                        source_data = json.load(f)
+                except Exception:
+                    source_data = {}
+            else:
+                source_data = {}
+
+        if source_data is None:
+            source_data = {}
+
+        if not isinstance(source_data, dict):
+            source_data = {}
+
+        source_data.setdefault('discovery', {})['max_concurrent_hosts'] = settings['discovery']
+        source_data.setdefault('access', {})['max_concurrent_hosts'] = settings['access']
+
+        try:
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(source_data, f, indent=2)
+        except Exception as exc:
+            messagebox.showerror(
+                "Configuration Save Error",
+                f"Failed to write concurrency settings:\n{str(exc)}"
+            )
+            return False
+
+        self.concurrency_status = {
+            'message': '✅ Concurrency settings saved to configuration.',
+            'color': self.theme.colors.get('success', 'green')
+        }
+        self._refresh_concurrency_inputs()
+        return True
+
+
     def _create_path_config_section(self, parent: tk.Widget, title: str, 
                                   description: str, path_type: str,
                                   show_edit_button: bool = False) -> None:
@@ -353,10 +726,13 @@ class AppConfigDialog:
             
         elif path_type == "config":
             path = self.config_var.get()
+            self.config_path = path
             result = self._validate_config_path(path)
             self.validation_results['config'] = result
             self._update_status_label(self.config_status_label, result)
-            
+            if result['valid']:
+                self._load_concurrency_settings(path)
+
         else:  # database
             path = self.database_var.get()
             result = self._validate_database_path(path)
@@ -626,9 +1002,16 @@ class AppConfigDialog:
                 "\n\nPlease fix these issues before saving."
             )
             return False
-        
+
+        concurrency_settings = self._get_concurrency_settings()
+        if concurrency_settings is None:
+            return False
+
         # Save to both settings manager (GUI preferences) and main config (application settings)
         try:
+            if not self._save_concurrency_settings(concurrency_settings):
+                return False
+
             # Save to settings manager (GUI preferences)
             if self.settings_manager:
                 self.settings_manager.set_backend_path(self.smbseek_var.get())
