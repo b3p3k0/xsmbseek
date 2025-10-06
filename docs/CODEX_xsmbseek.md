@@ -30,5 +30,6 @@ Project-specific guidance for Codex when collaborating on the xsmbseek GUI front
 - **Scan dialog contract**: Ensure dialog returns a full scan options dict; `_start_new_scan` is not string-compatible.
 - **Phase changes**: When backend workflow shifts, update progress mappings in both `BackendInterface` and `ScanManager`, plus user-facing copy.
 - **Avoid lists**: Favourite/avoid toggles share SettingsManager—mirror helper methods when adding new flags.
+- **Scan results summary counts** (2025-02-20): Completion dialog still shows zeros for host/share counts despite DB persisting totals. Treat as known issue until parser fix lands.
 
 Add new findings below this section as they emerge.
