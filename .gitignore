@@ -88,3 +88,8 @@ smbseek/
 
 # 
 xsmbseek-config.json
+
+# Public documentation allowlist
+docs/*
+!docs/CHANGELOG.md
+!docs/USER_GUIDE.md
