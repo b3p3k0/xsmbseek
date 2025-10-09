@@ -285,7 +285,7 @@ class SMBSeekGUI:
         # Force our intended dimensions instead of querying auto-sized dimensions
         # This prevents tkinter from expanding the window based on content
         target_width = 800   # Intended width for dashboard
-        target_height = 250  # Intended height with progress bar space
+        target_height = 250  # Intended height with expanded text progress area
         
         # Calculate center position based on intended dimensions
         screen_width = self.root.winfo_screenwidth()

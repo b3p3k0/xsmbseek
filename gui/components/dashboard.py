@@ -79,12 +79,10 @@ class DashboardWidget:
         self.metrics_frame = None
         self.scan_button = None
         self.status_bar = None
-        self.progress_bar = None
         self.update_time_label = None
         self.status_message = None
         
         # Progress tracking
-        self.progress_var = tk.DoubleVar()
         self.progress_text = tk.StringVar()
         self.progress_detail_text = tk.StringVar()
         self.status_text = tk.StringVar()
@@ -244,16 +242,9 @@ class DashboardWidget:
         self.theme.apply_to_widget(self.progress_frame, "card")
         # Always visible - maintains consistent layout and provides scan status feedback
         self.progress_frame.pack(fill=tk.X, pady=(0, 15))
-        
-        # Progress bar
-        self.progress_bar = ttk.Progressbar(
-            self.progress_frame,
-            variable=self.progress_var,
-            maximum=100,
-            style="SMBSeek.Horizontal.TProgressbar"
-        )
-        self.progress_bar.pack(fill=tk.X, padx=10, pady=(10, 5))
-        
+
+        # Progress card now relies on text-only feedback after removing the progress bar.
+
         # Progress text (main status)
         progress_label = tk.Label(
             self.progress_frame,
@@ -261,10 +252,12 @@ class DashboardWidget:
             anchor="center",
             bg=self.theme.colors["card_bg"],
             fg=self.theme.colors["text"],
-            font=self.theme.fonts["body"]
+            font=self.theme.fonts["body"],
+            wraplength=560,      # expanded text handling for multi-line messages
+            justify="center"
         )
-        progress_label.pack(pady=(0, 5))
-        
+        progress_label.pack(fill=tk.X, padx=10, pady=(14, 6))
+
         # Detailed progress text (host/share details)
         progress_detail_label = tk.Label(
             self.progress_frame,
@@ -273,17 +266,16 @@ class DashboardWidget:
             bg=self.theme.colors["card_bg"],
             fg=self.theme.colors["text_secondary"],
             font=self.theme.fonts["small"],
-            wraplength=520,      # fits card width on default layout
+            wraplength=560,      # expanded text handling for multi-line messages
             justify="center"
         )
-        progress_detail_label.pack(pady=(0, 10))
-        
+        progress_detail_label.pack(fill=tk.X, padx=10, pady=(0, 14))
+
         # Initialize progress section to idle state
         self._set_idle_progress_state()
     
     def _set_idle_progress_state(self) -> None:
         """Set progress section to idle state with ready message."""
-        self.progress_var.set(0)
         self.progress_text.set("Ready to scan")
         self.progress_detail_text.set("Click 'Start Scan' to begin security assessment")
 
@@ -370,34 +362,39 @@ class DashboardWidget:
     def start_scan_progress(self, scan_type: str, countries: List[str]) -> None:
         """
         Start displaying scan progress.
-        
+
         Args:
             scan_type: Type of scan being performed
             countries: Countries being scanned
         """
         # Show progress section
         self.progress_frame.pack(fill=tk.X, pady=(0, 15), before=self.metrics_frame)
-        
+
         # Reset progress
-        self.progress_var.set(0)
         self.progress_text.set(f"Starting {scan_type} scan for {', '.join(countries)}...")
-        
+        self.progress_detail_text.set("Initializing...")
+
         # Update status
         self.status_text.set(f"Scanning: {scan_type} | Countries: {', '.join(countries)}")
     
     def update_scan_progress(self, percentage: Optional[float], message: str) -> None:
         """
         Update scan progress display.
-        
+
         Args:
             percentage: Progress percentage (0-100) or None for status-only update
             message: Progress message to display
         """
         if percentage is not None:
-            self.progress_var.set(percentage)
-        
-        self.progress_text.set(message)
-        
+            # Show percentage in main progress text
+            self.progress_text.set(f"{percentage:.0f}% complete")
+            # Set detail line to message or empty string (never literal "None")
+            self.progress_detail_text.set(message if message else "")
+        else:
+            # No percentage, use message in main text or fallback
+            self.progress_text.set(message if message else "Processing...")
+            self.progress_detail_text.set("")
+
         # Force UI update without triggering window auto-resize
         # Using update() instead of update_idletasks() to prevent geometry recalculation
         try:
@@ -412,28 +409,31 @@ class DashboardWidget:
     def finish_scan_progress(self, success: bool, results: Dict[str, Any]) -> None:
         """
         Finish scan progress display.
-        
+
         Args:
             success: Whether scan completed successfully
             results: Scan results dictionary
         """
         if success:
-            self.progress_var.set(100)
             successful = results.get("successful_auth", 0)
             total = results.get("hosts_tested", 0)
+            # Set both main line and detail line for consistent display pattern
             self.progress_text.set(f"Scan complete: {successful}/{total} servers accessible")
-            
+            self.progress_detail_text.set("100% complete")
+
             # Refresh dashboard with new data (clear cache for fresh Recent Discoveries count)
             self.parent.after(2000, self._refresh_after_scan_completion)
         else:
             self.progress_text.set("Scan failed - check backend connection")
-        
+            self.progress_detail_text.set("")
+
         # Hide progress section after delay
         self.parent.after(5000, self._hide_progress_section)
     
     def _hide_progress_section(self) -> None:
         """Return progress section to idle state."""
         # Don't hide the frame - return to idle state for consistent layout
+        # This ensures both text lines are properly reset to idle state
         self._set_idle_progress_state()
         self.status_text.set("Ready")
     
@@ -550,23 +550,24 @@ class DashboardWidget:
     def _handle_scan_progress(self, percentage: float, status: str, phase: str) -> None:
         """Handle progress updates from scan manager."""
         try:
-            # Update progress bar
-            if percentage is not None:
-                self.progress_var.set(min(100, max(0, percentage)))
-            
-            # Update main progress text with phase
+            # Update main progress text with phase and percentage
             if phase:
                 phase_display = phase.replace("_", " ").title()
-                progress_text = f"{phase_display}: {percentage:.0f}%" if percentage else phase_display
+                if percentage is not None:
+                    progress_text = f"{phase_display}: {percentage:.0f}%"
+                else:
+                    progress_text = phase_display
             else:
-                progress_text = "Processing..." if not percentage else f"{percentage:.0f}%"
-            
+                if percentage is not None:
+                    progress_text = f"{percentage:.0f}% complete"
+                else:
+                    progress_text = "Processing..."
+
             self.progress_text.set(progress_text)
-            
-            # Update detailed status
-            if status:
-                self.progress_detail_text.set(status)
-            
+
+            # Update detailed status (never show literal "None")
+            self.progress_detail_text.set(status if status else "")
+
             # Force UI update safely without triggering window auto-resize
             # Using update() instead of update_idletasks() to prevent geometry recalculation
             try:
@@ -577,7 +578,7 @@ class DashboardWidget:
             except tk.TclError:
                 # UI may be destroyed, ignore
                 pass
-                
+
         except Exception as e:
             # Log error but don't interrupt scan
             print(f"Progress update error: {e}")  # In production, use proper logging
@@ -585,13 +586,12 @@ class DashboardWidget:
     def _show_scan_progress(self, country: Optional[str]) -> None:
         """Transition progress display to active scanning state."""
         # Progress section is already visible, just update content for active state
-        
-        # Reset progress to start
-        self.progress_var.set(0)
+
+        # Reset progress text to start
         scan_target = country if country else "global"
         self.progress_text.set(f"Initializing {scan_target} scan...")
         self.progress_detail_text.set("Setting up scan parameters...")
-        
+
         # Update status
         self.status_text.set(f"Scanning: {scan_target}")
     
