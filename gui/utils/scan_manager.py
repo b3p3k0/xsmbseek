@@ -550,15 +550,24 @@ class ScanManager:
         
         # Check for cancellation first
         if results.get("cancelled", False):
-            # Handle cancelled scan
+            # Handle cancelled scan with enhanced mapping
+            hosts_scanned = (results.get("hosts_scanned", 0) or
+                            results.get("hosts_tested", 0) or 0)
+
+            accessible_hosts = (results.get("hosts_accessible", 0) or
+                               results.get("successful_auth", 0) or 0)
+
+            shares_found = (results.get("accessible_shares", 0) or
+                           results.get("shares_discovered", 0) or 0)
+
             self.scan_results.update({
                 "end_time": end_time.isoformat(),
                 "duration_seconds": duration.total_seconds(),
                 "status": "cancelled",
                 "backend_results": results,
-                "hosts_scanned": results.get("hosts_tested", 0),
-                "accessible_hosts": results.get("successful_auth", 0),
-                "shares_found": results.get("shares_discovered", 0),
+                "hosts_scanned": hosts_scanned,
+                "accessible_hosts": accessible_hosts,
+                "shares_found": shares_found,
                 "summary_message": "Scan cancelled by user"
             })
 
@@ -570,15 +579,48 @@ class ScanManager:
             )
             return
 
-        # Update scan results for normal completion/failure
+        # Update scan results for normal completion/failure with enhanced mapping
+        # Use multiple possible field names to ensure compatibility with different SMBSeek versions
+        hosts_scanned = (results.get("hosts_scanned", 0) or
+                        results.get("hosts_tested", 0) or 0)
+
+        accessible_hosts = (results.get("hosts_accessible", 0) or
+                           results.get("successful_auth", 0) or 0)
+
+        shares_found = (results.get("accessible_shares", 0) or
+                       results.get("shares_discovered", 0) or 0)
+
+        # Add fallback logic: if parsing failed to extract meaningful numbers,
+        # attempt to query database for recent scan statistics
+        used_fallback = False
+        if hosts_scanned == 0 and accessible_hosts == 0 and shares_found == 0:
+            print("WARNING: CLI parsing returned zero values for all statistics. Attempting database fallback.")
+            try:
+                # Try to get recent statistics from database as fallback
+                fallback_stats = self._get_recent_scan_stats_from_db()
+                if fallback_stats:
+                    hosts_scanned = fallback_stats.get("hosts_scanned", 0)
+                    accessible_hosts = fallback_stats.get("accessible_hosts", 0)
+                    shares_found = fallback_stats.get("shares_found", 0)
+                    used_fallback = True
+                    print(f"Database fallback successful: hosts={hosts_scanned}, accessible={accessible_hosts}, shares={shares_found}")
+                else:
+                    print("Database fallback returned no data.")
+            except Exception as e:
+                # Database fallback failed - continue with parsed values (likely 0)
+                print(f"Database fallback failed: {e}")
+                pass
+
         self.scan_results.update({
             "end_time": end_time.isoformat(),
             "duration_seconds": duration.total_seconds(),
             "status": "completed" if results.get("success", False) else "failed",
             "backend_results": results,
-            "hosts_scanned": results.get("hosts_tested", 0),
-            "accessible_hosts": results.get("successful_auth", 0),
-            "shares_found": results.get("shares_discovered", 0)
+            "hosts_scanned": hosts_scanned,
+            "accessible_hosts": accessible_hosts,
+            "shares_found": shares_found,
+            # Add flag indicating if fallback was used
+            "used_database_fallback": used_fallback
         })
 
         # Final progress update
@@ -588,6 +630,10 @@ class ScanManager:
 
             # Build enhanced summary message (SMBSeek 3.0 - no file collection)
             summary_message = f"Scan completed: {accessible}/{hosts} hosts accessible"
+
+            # Add note if database fallback was used for statistics
+            if used_fallback:
+                summary_message += " (statistics from database)"
 
             # Store summary message for UI display
             self.scan_results["summary_message"] = summary_message
@@ -707,6 +753,67 @@ class ScanManager:
         try:
             return datetime.fromisoformat(self.scan_results["end_time"])
         except (ValueError, TypeError):
+            return None
+
+    def _get_recent_scan_stats_from_db(self) -> Optional[Dict[str, int]]:
+        """
+        Get recent scan statistics from database as fallback when parsing fails.
+
+        Returns:
+            Dictionary with hosts_scanned, accessible_hosts, shares_found or None if unavailable
+        """
+        try:
+            # Import here to avoid circular dependencies
+            import sys
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+            from database_access import DatabaseReader
+
+            # Try to get backend path for database location
+            backend_path = getattr(self.backend_interface, 'backend_path', None)
+            if not backend_path:
+                return None
+
+            db_path = os.path.join(backend_path, "smbseek.db")
+            if not os.path.exists(db_path):
+                return None
+
+            # Create database reader and get recent statistics
+            db_reader = DatabaseReader(str(db_path))
+            if not db_reader.is_database_available():
+                return None
+
+            # Get dashboard summary which includes recent scan stats
+            summary = db_reader.get_dashboard_summary()
+
+            # Extract stats and calculate reasonable estimates
+            recent_discoveries = summary.get("recent_discoveries", {})
+            total_servers = summary.get("total_servers", 0)
+            accessible_shares = summary.get("accessible_shares", 0)
+
+            # If we have recent discovery data, use it
+            if isinstance(recent_discoveries, dict):
+                discovered = recent_discoveries.get("discovered", 0)
+                accessible = recent_discoveries.get("accessible", 0)
+
+                if discovered > 0 or accessible > 0:
+                    return {
+                        "hosts_scanned": discovered,
+                        "accessible_hosts": accessible,
+                        "shares_found": accessible_shares  # Use total accessible shares as estimate
+                    }
+
+            # Fallback: use total database stats if recent data unavailable
+            if total_servers > 0:
+                return {
+                    "hosts_scanned": total_servers,
+                    "accessible_hosts": summary.get("servers_with_accessible_shares", 0),
+                    "shares_found": accessible_shares
+                }
+
+            return None
+
+        except Exception:
+            # Any error in database fallback should not crash the scan
             return None
 
 

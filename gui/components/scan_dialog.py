@@ -28,6 +28,7 @@ class ScanDialog:
 
     Provides interface for:
     - Optional country selection (global scan if empty)
+    - Regional country selection via checkboxes
     - Configuration file path display and editing
     - Scan initiation with validation and complete options dict
 
@@ -36,6 +37,16 @@ class ScanDialog:
     Callback contract provides complete scan options dict to ensure
     compatibility with ScanManager expectations.
     """
+
+    # Regional country code mappings
+    REGIONS = {
+        "Africa": ["AO", "BF", "BI", "BJ", "BW", "CD", "CF", "CG", "CI", "CM", "CV", "DJ", "DZ", "EG", "EH", "ER", "ET", "GA", "GH", "GM", "GN", "GQ", "GW", "KE", "KM", "LR", "LS", "LY", "MA", "MG", "ML", "MR", "MU", "MW", "MZ", "NA", "NE", "NG", "RE", "RW", "SC", "SD", "SH", "SL", "SN", "SO", "ST", "SZ", "TD", "TG", "TN", "TZ", "UG", "ZA", "ZM", "ZW"],
+        "Asia": ["AE", "AF", "AM", "AZ", "BD", "BH", "BN", "BT", "CN", "GE", "HK", "ID", "IL", "IN", "IQ", "IR", "JO", "JP", "KG", "KH", "KP", "KR", "KW", "KZ", "LA", "LB", "LK", "MM", "MN", "MO", "MV", "MY", "NP", "OM", "PH", "PK", "PS", "QA", "SA", "SG", "SY", "TH", "TJ", "TL", "TM", "TR", "TW", "UZ", "VN", "YE"],
+        "Europe": ["AD", "AL", "AT", "AX", "BA", "BE", "BG", "BY", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FO", "FR", "GB", "GI", "GR", "HR", "HU", "IE", "IM", "IS", "IT", "JE", "LI", "LT", "LU", "LV", "MC", "MD", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "RU", "SE", "SI", "SK", "SM", "UA", "VA"],
+        "North America": ["AG", "AI", "AW", "BB", "BL", "BM", "BQ", "BS", "BZ", "CA", "CR", "CU", "CW", "DM", "DO", "GD", "GL", "GP", "GT", "HN", "HT", "JM", "KN", "KY", "LC", "MF", "MQ", "MS", "MX", "NI", "PA", "PM", "PR", "SV", "SX", "TC", "TT", "US", "VC", "VG", "VI"],
+        "Oceania": ["AS", "AU", "CK", "FJ", "FM", "GU", "KI", "MH", "MP", "NC", "NF", "NR", "NU", "NZ", "PF", "PG", "PN", "PW", "SB", "TK", "TO", "TV", "VU", "WF", "WS"],
+        "South America": ["AR", "BO", "BR", "CL", "CO", "EC", "GY", "PE", "PY", "SR", "UY", "VE"]
+    }
     
     def __init__(self, parent: tk.Widget, config_path: str,
                  config_editor_callback: Callable[[str], None],
@@ -72,6 +83,14 @@ class ScanDialog:
         self.country_var = tk.StringVar()
         self.country_entry = None
 
+        # Region selection UI variables
+        self.africa_var = tk.BooleanVar(value=False)
+        self.asia_var = tk.BooleanVar(value=False)
+        self.europe_var = tk.BooleanVar(value=False)
+        self.north_america_var = tk.BooleanVar(value=False)
+        self.oceania_var = tk.BooleanVar(value=False)
+        self.south_america_var = tk.BooleanVar(value=False)
+
         # Advanced options UI variables
         self.max_results_var = tk.IntVar(value=1000)
         self.recent_hours_var = tk.StringVar()  # Empty means None/default
@@ -100,7 +119,7 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("680x1000")
+        self.dialog.geometry("680x1200")
         self.dialog.minsize(400, 250)
         
         # Apply theme
@@ -121,7 +140,7 @@ class ScanDialog:
         
         # Setup event handlers
         self._setup_event_handlers()
-        
+
         # Focus on country field
         self._focus_country_field()
     
@@ -208,11 +227,14 @@ class ScanDialog:
         
         example_label = self.theme.create_styled_label(
             country_input_frame,
-            "  (e.g., US, GB, CA or US,GB,CA - leave blank for global scan)",
+            "  (e.g., US, GB, CA - combines with region selections below)",
             "small",
             fg=self.theme.colors["text_secondary"]
         )
         example_label.pack(side=tk.LEFT)
+
+        # Region selection
+        self._create_region_selection(options_frame)
 
         # Max Shodan Results
         self._create_max_results_option(options_frame)
@@ -231,6 +253,139 @@ class ScanDialog:
 
         # API Key Override
         self._create_api_key_option(options_frame)
+
+    def _create_region_selection(self, parent_frame: tk.Frame) -> None:
+        """Create region selection with checkboxes."""
+        region_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(region_container, "card")
+        region_container.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        # Section title
+        title_label = self.theme.create_styled_label(
+            region_container,
+            "📍 Region Selection:",
+            "body"
+        )
+        title_label.pack(anchor="w", padx=5, pady=(10, 5))
+
+        # Region checkboxes in a compact 3x2 grid
+        checkboxes_frame = tk.Frame(region_container)
+        self.theme.apply_to_widget(checkboxes_frame, "card")
+        checkboxes_frame.pack(fill=tk.X, pady=(5, 5))
+
+        # Create region checkboxes in 3 columns
+        regions = [
+            ("Africa", self.africa_var),
+            ("Asia", self.asia_var),
+            ("Europe", self.europe_var),
+            ("North America", self.north_america_var),
+            ("Oceania", self.oceania_var),
+            ("South America", self.south_america_var)
+        ]
+
+        for i, (region_name, region_var) in enumerate(regions):
+            row = i // 3
+            col = i % 3
+
+            # Create checkbox
+            checkbox = tk.Checkbutton(
+                checkboxes_frame,
+                text=f"{region_name} ({len(self.REGIONS[region_name])})",
+                variable=region_var,
+                font=self.theme.fonts["small"],
+                command=self._update_region_status
+            )
+            self.theme.apply_to_widget(checkbox, "checkbox")
+            checkbox.grid(row=row, column=col, sticky="w", padx=5, pady=2)
+
+        # Quick action buttons and status
+        bottom_frame = tk.Frame(region_container)
+        self.theme.apply_to_widget(bottom_frame, "card")
+        bottom_frame.pack(fill=tk.X, pady=(5, 10))
+
+        # Action buttons on the left
+        actions_frame = tk.Frame(bottom_frame)
+        self.theme.apply_to_widget(actions_frame, "card")
+        actions_frame.pack(side=tk.LEFT)
+
+        select_all_button = tk.Button(
+            actions_frame,
+            text="Select All",
+            command=self._select_all_regions,
+            font=self.theme.fonts["small"]
+        )
+        self.theme.apply_to_widget(select_all_button, "button_secondary")
+        select_all_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        clear_button = tk.Button(
+            actions_frame,
+            text="Clear All",
+            command=self._clear_all_regions,
+            font=self.theme.fonts["small"]
+        )
+        self.theme.apply_to_widget(clear_button, "button_secondary")
+        clear_button.pack(side=tk.LEFT)
+
+        # Status label on the right
+        self.region_status_label = self.theme.create_styled_label(
+            bottom_frame,
+            "",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        self.region_status_label.pack(side=tk.RIGHT, padx=(10, 5))
+
+        # Initialize status display
+        self._update_region_status()
+
+    def _update_region_status(self) -> None:
+        """Update the status label showing selected regions and country count."""
+        selected_regions = []
+        total_countries = 0
+
+        region_vars = [
+            ("Africa", self.africa_var),
+            ("Asia", self.asia_var),
+            ("Europe", self.europe_var),
+            ("North America", self.north_america_var),
+            ("Oceania", self.oceania_var),
+            ("South America", self.south_america_var)
+        ]
+
+        for region_name, region_var in region_vars:
+            if region_var.get():
+                selected_regions.append(region_name)
+                total_countries += len(self.REGIONS[region_name])
+
+        if selected_regions:
+            if len(selected_regions) == 1:
+                status_text = f"{selected_regions[0]} ({total_countries} countries)"
+            else:
+                status_text = f"{len(selected_regions)} regions ({total_countries} countries)"
+        else:
+            status_text = ""
+
+        self.region_status_label.configure(text=status_text)
+
+    def _select_all_regions(self) -> None:
+        """Select all regional checkboxes."""
+        self.africa_var.set(True)
+        self.asia_var.set(True)
+        self.europe_var.set(True)
+        self.north_america_var.set(True)
+        self.oceania_var.set(True)
+        self.south_america_var.set(True)
+        self._update_region_status()
+
+    def _clear_all_regions(self) -> None:
+        """Clear all regional checkboxes."""
+        self.africa_var.set(False)
+        self.asia_var.set(False)
+        self.europe_var.set(False)
+        self.north_america_var.set(False)
+        self.oceania_var.set(False)
+        self.south_america_var.set(False)
+        self._update_region_status()
 
     def _create_max_results_option(self, parent_frame: tk.Frame) -> None:
         """Create max Shodan results option."""
@@ -645,7 +800,55 @@ class ScanDialog:
     def _focus_country_field(self) -> None:
         """Set focus to country input field."""
         self.country_entry.focus_set()
-    
+
+    def _get_selected_region_countries(self) -> list[str]:
+        """Get all country codes from selected regions."""
+        region_countries = []
+
+        region_vars = [
+            ("Africa", self.africa_var),
+            ("Asia", self.asia_var),
+            ("Europe", self.europe_var),
+            ("North America", self.north_america_var),
+            ("Oceania", self.oceania_var),
+            ("South America", self.south_america_var)
+        ]
+
+        for region_name, region_var in region_vars:
+            if region_var.get():
+                region_countries.extend(self.REGIONS[region_name])
+
+        return region_countries
+
+    def _get_all_selected_countries(self, manual_input: str) -> tuple[list[str], str]:
+        """Get combined list of manually entered and region-selected countries.
+
+        Args:
+            manual_input: Raw manual country input string
+
+        Returns:
+            Tuple of (combined_countries_list, error_message)
+            If error_message is empty, validation succeeded
+        """
+        # Parse manual countries
+        manual_countries, error_msg = self._parse_and_validate_countries(manual_input)
+        if error_msg:
+            return [], error_msg
+
+        # Get region countries
+        region_countries = self._get_selected_region_countries()
+
+        # Combine and de-duplicate
+        all_countries = list(set(manual_countries + region_countries))
+        all_countries.sort()  # Sort for consistent ordering
+
+        # Validate total count (prevent overwhelming the backend)
+        max_countries = 100  # Reasonable limit
+        if len(all_countries) > max_countries:
+            return [], f"Too many countries selected ({len(all_countries)}). Maximum allowed: {max_countries}. Please reduce your selection."
+
+        return all_countries, ""
+
     def _parse_and_validate_countries(self, country_input: str) -> tuple[list[str], str]:
         """Parse and validate comma-separated country codes.
         
@@ -868,6 +1071,14 @@ class ScanDialog:
                 self._settings_manager.set_setting('scan_dialog.access_max_concurrency', access_concurrency)
                 self._settings_manager.set_setting('scan_dialog.rate_limit_delay', rate_limit_delay)
                 self._settings_manager.set_setting('scan_dialog.share_access_delay', share_access_delay)
+
+                # Save region selections
+                self._settings_manager.set_setting('scan_dialog.region_africa', self.africa_var.get())
+                self._settings_manager.set_setting('scan_dialog.region_asia', self.asia_var.get())
+                self._settings_manager.set_setting('scan_dialog.region_europe', self.europe_var.get())
+                self._settings_manager.set_setting('scan_dialog.region_north_america', self.north_america_var.get())
+                self._settings_manager.set_setting('scan_dialog.region_oceania', self.oceania_var.get())
+                self._settings_manager.set_setting('scan_dialog.region_south_america', self.south_america_var.get())
             except Exception:
                 pass  # Don't fail scan if settings save fails
 
@@ -918,6 +1129,22 @@ class ScanDialog:
                     self.rate_limit_delay_var.set(str(rate_limit_delay))
                 if share_access_delay is not None:
                     self.share_access_delay_var.set(str(share_access_delay))
+
+                # Load region selections
+                africa = bool(self._settings_manager.get_setting('scan_dialog.region_africa', False))
+                asia = bool(self._settings_manager.get_setting('scan_dialog.region_asia', False))
+                europe = bool(self._settings_manager.get_setting('scan_dialog.region_europe', False))
+                north_america = bool(self._settings_manager.get_setting('scan_dialog.region_north_america', False))
+                oceania = bool(self._settings_manager.get_setting('scan_dialog.region_oceania', False))
+                south_america = bool(self._settings_manager.get_setting('scan_dialog.region_south_america', False))
+
+                # Set region variables
+                self.africa_var.set(africa)
+                self.asia_var.set(asia)
+                self.europe_var.set(europe)
+                self.north_america_var.set(north_america)
+                self.oceania_var.set(oceania)
+                self.south_america_var.set(south_america)
             except Exception:
                 # Fall back to defaults if settings loading fails
                 pass
@@ -925,25 +1152,35 @@ class ScanDialog:
     def _start_scan(self) -> None:
         """Validate inputs and start the scan with configured parameters."""
         country_input = self.country_var.get().strip()
-        
-        # Parse and validate country codes
-        countries, error_msg = self._parse_and_validate_countries(country_input)
-        
+
+        # Get combined countries from manual input and region selections
+        countries, error_msg = self._get_all_selected_countries(country_input)
+
         if error_msg:
             messagebox.showerror(
-                "Invalid Country Code(s)",
-                error_msg + "\n\nExamples:\n• Single: US\n• Multiple: US,GB,CA or US, GB, CA"
+                "Invalid Country Selection",
+                error_msg + "\n\nTip: You can combine manual country codes with region selections."
             )
             self.country_entry.focus_set()
             return
-        
+
         # Prepare country parameter for backend (comma-separated string or None)
         if countries:
             country_param = ",".join(countries)
-            if len(countries) == 1:
-                scan_desc = f"country: {countries[0]}"
+
+            # Create descriptive scan description
+            manual_countries, _ = self._parse_and_validate_countries(country_input)
+            region_countries = self._get_selected_region_countries()
+
+            if manual_countries and region_countries:
+                scan_desc = f"Manual: {len(manual_countries)}, Regions: {len(region_countries)}, Total: {len(countries)} countries"
+            elif manual_countries:
+                if len(manual_countries) == 1:
+                    scan_desc = f"country: {manual_countries[0]}"
+                else:
+                    scan_desc = f"countries: {', '.join(manual_countries)}"
             else:
-                scan_desc = f"countries: {', '.join(countries)}"
+                scan_desc = f"regions: {len(countries)} countries total"
         else:
             country_param = None
             scan_desc = "global (all countries)"
