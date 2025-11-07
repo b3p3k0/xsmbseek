@@ -306,11 +306,14 @@ def handle_treeview_click(tree, event, settings_manager, callbacks):
     if not item or not settings_manager:
         return None
 
-    values = tree.item(item)["values"]
-    if not values or len(values) < 3:
+    ip_address = _get_ip_from_item(tree, item)
+    if not ip_address:
         return None
 
-    ip_address = values[2]  # IP is at index 2
+    # Snapshot currently selected IPs so we can restore them after the tree refreshes
+    selected_ips = _snapshot_selected_ips(tree)
+    if ip_address not in selected_ips:
+        selected_ips.append(ip_address)
 
     # Handle favorite column clicks (#1, since #0 hidden)
     if column == '#1':
@@ -319,14 +322,12 @@ def handle_treeview_click(tree, event, settings_manager, callbacks):
         star = "★" if is_now_favorite else "☆"
         tree.set(item, "favorite", star)
 
-        # Re-apply filters if favorites-only is enabled
-        if callbacks.get('on_favorites_filter_changed'):
-            callbacks['on_favorites_filter_changed']()
-
-        # Maintain focus and selection for keyboard navigation
-        tree.selection_set(item)
-        tree.focus(item)
-
+        _refresh_filters_and_restore_selection(
+            tree,
+            callbacks.get('on_favorites_filter_changed'),
+            selected_ips,
+            ip_address
+        )
         return "break"  # Only consume event when we actually toggled
 
     # Handle avoid column clicks (#2)
@@ -336,14 +337,12 @@ def handle_treeview_click(tree, event, settings_manager, callbacks):
         skull = "☠" if is_now_avoided else "💀"
         tree.set(item, "avoid", skull)
 
-        # Re-apply filters if avoid-only is enabled
-        if callbacks.get('on_avoid_filter_changed'):
-            callbacks['on_avoid_filter_changed']()
-
-        # Maintain focus and selection for keyboard navigation
-        tree.selection_set(item)
-        tree.focus(item)
-
+        _refresh_filters_and_restore_selection(
+            tree,
+            callbacks.get('on_avoid_filter_changed'),
+            selected_ips,
+            ip_address
+        )
         return "break"  # Only consume event when we actually toggled
 
     return None
@@ -410,3 +409,86 @@ def select_all_items(tree):
 def _set_header_text(tree, column: str, text: str):
     """Helper to update column header text."""
     tree.heading(column, text=text)
+
+
+def _refresh_filters_and_restore_selection(tree, refresh_callback, selected_ips, preferred_ip):
+    """
+    Run any provided refresh callback and safely restore selection afterward.
+
+    Treeview item IDs are not stable after a refresh (per tkinter docs), so we
+    re-select rows by semantic identifier (IP address) instead of stale IDs.
+    """
+    if refresh_callback:
+        refresh_callback()
+
+    _restore_selection_by_ips(tree, selected_ips, preferred_ip)
+
+
+def _snapshot_selected_ips(tree) -> List[str]:
+    """Capture IP addresses for all currently selected rows."""
+    ips = []
+    for item in tree.selection():
+        ip = _get_ip_from_item(tree, item)
+        if ip:
+            ips.append(ip)
+    return ips
+
+
+def _get_ip_from_item(tree, item) -> Optional[str]:
+    """Extract IP address (column index 2) from a tree item."""
+    try:
+        values = tree.item(item).get("values", [])
+    except tk.TclError:
+        return None
+
+    if len(values) < 3:
+        return None
+    return values[2]
+
+
+def _restore_selection_by_ips(tree, ips: List[str], preferred_ip: Optional[str] = None) -> List[str]:
+    """
+    Restore selection/focus by IP address after the tree has been rebuilt.
+
+    Returns the subset of IPs that were actually restored.
+    """
+    if not ips:
+        tree.selection_remove(tree.selection())
+        tree.focus("")
+        return []
+
+    ip_index = _build_ip_index(tree)
+    resolved_items = []
+    restored_ips = []
+
+    for ip in ips:
+        item = ip_index.get(ip)
+        if item:
+            resolved_items.append(item)
+            restored_ips.append(ip)
+
+    if resolved_items:
+        tree.selection_set(resolved_items)
+    else:
+        tree.selection_remove(tree.selection())
+
+    preferred_item = ip_index.get(preferred_ip) if preferred_ip else None
+    if not preferred_item and resolved_items:
+        preferred_item = resolved_items[0]
+
+    if preferred_item:
+        tree.focus(preferred_item)
+    else:
+        tree.focus("")
+
+    return restored_ips
+
+
+def _build_ip_index(tree) -> Dict[str, str]:
+    """Create a mapping of IP address to tree item ID."""
+    ip_index = {}
+    for item in tree.get_children():
+        ip = _get_ip_from_item(tree, item)
+        if ip and ip not in ip_index:
+            ip_index[ip] = item
+    return ip_index
