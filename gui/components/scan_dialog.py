@@ -207,7 +207,7 @@ class ScanDialog:
         # Country label and input
         country_label = self.theme.create_styled_label(
             country_container,
-            "Country Code (optional):",
+            "📌 Country Code (optional):",
             "body"
         )
         country_label.pack(anchor="w")
