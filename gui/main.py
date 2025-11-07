@@ -32,11 +32,11 @@ from server_list_window import open_server_list_window, ServerListWindow
 from config_editor_window import open_config_editor_window
 from app_config_dialog import open_app_config_dialog
 from data_import_dialog import open_data_import_dialog
-from database_setup_dialog import show_database_setup_dialog
 from database_access import DatabaseReader
 from backend_interface import BackendInterface
 from style import get_theme, apply_theme_to_window
 from settings_manager import get_settings_manager
+from database_setup_helper import ensure_database_available
 
 
 class SMBSeekGUI:
@@ -149,8 +149,12 @@ class SMBSeekGUI:
             # Initialize backend interface first
             self.backend_interface = BackendInterface(self._get_backend_path())
             
-            # Handle database setup
-            validated_db_path = self._ensure_database_available(db_path)
+            # Handle database setup via shared helper
+            validated_db_path = ensure_database_available(
+                initial_db_path=db_path,
+                config_path=self.config_path,
+                parent=self.root
+            )
             if not validated_db_path:
                 # User chose to exit during database setup
                 sys.exit(0)
@@ -178,49 +182,6 @@ class SMBSeekGUI:
             # Show error dialog and return to database setup instead of crashing
             self._handle_backend_setup_error(e)
     
-    def _ensure_database_available(self, initial_db_path: str) -> Optional[str]:
-        """
-        Ensure database is available, showing setup dialog if needed.
-        
-        Args:
-            initial_db_path: Initial database path to try
-            
-        Returns:
-            Validated database path or None if user chose to exit
-        """
-        # Try to validate the current database path
-        temp_db_reader = DatabaseReader()  # Create temporary instance for validation
-        validation_result = temp_db_reader.validate_database(initial_db_path)
-        
-        if validation_result['valid']:
-            # Database is valid, use it
-            return initial_db_path
-        
-        # Database is missing or invalid, show setup dialog
-        while True:
-            selected_db_path = show_database_setup_dialog(
-                parent=self.root,
-                initial_db_path=initial_db_path,
-                config_path=self.config_path
-            )
-            
-            if selected_db_path is None:
-                # User chose to exit
-                return None
-            
-            # Validate the selected database
-            validation_result = temp_db_reader.validate_database(selected_db_path)
-            if validation_result['valid']:
-                return selected_db_path
-            else:
-                # Show error and loop back to setup dialog
-                messagebox.showerror(
-                    "Database Validation Failed",
-                    f"Selected database is not valid:\n{validation_result['error']}\n\n"
-                    "Please try a different option."
-                )
-                initial_db_path = selected_db_path  # Show the failed path in dialog
-    
     def _handle_backend_setup_error(self, error: Exception) -> None:
         """
         Handle backend setup errors gracefully by returning to database setup.
@@ -234,7 +195,11 @@ class SMBSeekGUI:
         if messagebox.askyesno("Backend Setup Error", error_msg):
             # Retry database setup
             try:
-                validated_db_path = self._ensure_database_available("../backend/smbseek.db")
+                validated_db_path = ensure_database_available(
+                    initial_db_path="../backend/smbseek.db",
+                    config_path=self.config_path,
+                    parent=self.root
+                )
                 if validated_db_path:
                     # Try again with new database
                     self._setup_backend_interfaces()
@@ -259,8 +224,8 @@ class SMBSeekGUI:
         """Create and configure main application window."""
         self.root = tk.Tk()
         self.root.title("SMBSeek Security Toolkit")
-        self.root.geometry("800x250")
-        self.root.minsize(800, 240)
+        self.root.geometry("1200x725")
+        self.root.minsize(1200, 725)
         
         # Apply theme
         apply_theme_to_window(self.root)
@@ -275,7 +240,7 @@ class SMBSeekGUI:
         """
         Center the main window on screen using fixed dimensions.
         
-        Forces window to maintain intended 800x250 size instead of
+        Forces window to maintain intended 1200x725 size instead of
         auto-sizing based on content. This ensures consistent compact
         layout across different screen configurations.
         
@@ -284,8 +249,8 @@ class SMBSeekGUI:
         """
         # Force our intended dimensions instead of querying auto-sized dimensions
         # This prevents tkinter from expanding the window based on content
-        target_width = 800   # Intended width for dashboard
-        target_height = 250  # Intended height with expanded text progress area
+        target_width = 1200   # Intended width for dashboard
+        target_height = 725   # Updated height to accommodate larger console
         
         # Calculate center position based on intended dimensions
         screen_width = self.root.winfo_screenwidth()
@@ -304,8 +269,8 @@ class SMBSeekGUI:
         but allows users to manually resize larger without forcing back to defaults.
         Implements industry-standard UX behavior for window management.
         """
-        min_width = 800
-        min_height = 240
+        min_width = 1200
+        min_height = 725
         
         # Get current geometry
         current_geometry = self.root.geometry()
