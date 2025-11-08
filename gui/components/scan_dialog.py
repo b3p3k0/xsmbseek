@@ -41,6 +41,8 @@ class ScanDialog:
     compatibility with ScanManager expectations.
     """
 
+    TEMPLATE_PLACEHOLDER_TEXT = "Select a template..."
+
     # Regional country code mappings
     REGIONS = {
         "Africa": ["AO", "BF", "BI", "BJ", "BW", "CD", "CF", "CG", "CI", "CM", "CV", "DJ", "DZ", "EG", "EH", "ER", "ET", "GA", "GH", "GM", "GN", "GQ", "GW", "KE", "KM", "LR", "LS", "LY", "MA", "MG", "ML", "MR", "MU", "MW", "MZ", "NA", "NE", "NG", "RE", "RW", "SC", "SD", "SH", "SL", "SN", "SO", "ST", "SZ", "TD", "TG", "TN", "TZ", "UG", "ZA", "ZM", "ZW"],
@@ -94,7 +96,7 @@ class ScanDialog:
         self.template_dropdown = None
         self._template_label_to_slug: Dict[str, str] = {}
         self._selected_template_slug: Optional[str] = None
-        self._pending_template_slug = self.template_store.get_last_used()
+        self._pending_template_slug = None
 
         # Region selection UI variables
         self.africa_var = tk.BooleanVar(value=False)
@@ -132,8 +134,9 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("1275x915")
-        self.dialog.minsize(900, 650)
+        width, height = 1290, 930
+        self.dialog.geometry(f"{width}x{height}")
+        self.dialog.resizable(False, False)
         
         # Apply theme
         self.theme.apply_to_widget(self.dialog, "main_window")
@@ -181,9 +184,6 @@ class ScanDialog:
         
         # Setup event handlers
         self._setup_event_handlers()
-
-        # Apply last-used template after widgets and handlers exist
-        self._auto_apply_pending_template()
 
         # Focus on default field
         self._focus_initial_field()
@@ -392,27 +392,35 @@ class ScanDialog:
             self.delete_template_button.configure(state=tk.DISABLED)
             return
 
-        self.template_dropdown.configure(state="readonly", values=values)
-        self.delete_template_button.configure(state=tk.NORMAL)
+        placeholder = self.TEMPLATE_PLACEHOLDER_TEXT
+        display_values = [placeholder] + values
+        self.template_dropdown.configure(state="readonly", values=display_values)
 
         slug_to_label = {tpl.slug: tpl.name for tpl in templates}
-        desired_slug = select_slug or self._pending_template_slug or self.template_store.get_last_used()
+        desired_slug = select_slug
+
         if desired_slug and desired_slug in slug_to_label:
             label = slug_to_label[desired_slug]
+            self.template_var.set(label)
+            self._selected_template_slug = desired_slug
+            self.delete_template_button.configure(state=tk.NORMAL)
         else:
-            label = values[0]
-            desired_slug = self._template_label_to_slug.get(label)
-
-        self.template_var.set(label)
-        self._selected_template_slug = desired_slug
+            self.template_var.set(placeholder)
+            self._selected_template_slug = None
+            self.delete_template_button.configure(state=tk.DISABLED)
 
     def _handle_template_selected(self, _event=None) -> None:
         """Apply template when user selects it from dropdown."""
         label = self.template_var.get()
+        if label == self.TEMPLATE_PLACEHOLDER_TEXT:
+            self._selected_template_slug = None
+            self.delete_template_button.configure(state=tk.DISABLED)
+            return
         slug = self._template_label_to_slug.get(label)
         self._selected_template_slug = slug
         if slug:
             self._apply_template_by_slug(slug)
+            self.delete_template_button.configure(state=tk.NORMAL)
 
     def _prompt_save_template(self) -> None:
         """Ask for template name and persist current form state."""
@@ -539,14 +547,6 @@ class ScanDialog:
         self._apply_form_state(template.form_state)
         self.template_store.set_last_used(slug)
         self._selected_template_slug = slug
-
-    def _auto_apply_pending_template(self) -> None:
-        """Apply last-used template after UI is ready."""
-        if not self._pending_template_slug:
-            return
-        self._apply_template_by_slug(self._pending_template_slug, silent=True)
-        self._refresh_template_toolbar(select_slug=self._pending_template_slug)
-        self._pending_template_slug = None
 
     def _create_region_selection(self, parent_frame: tk.Frame) -> None:
         """Create region selection with checkboxes."""
