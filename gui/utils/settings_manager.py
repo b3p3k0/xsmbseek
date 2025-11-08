@@ -52,7 +52,7 @@ class SettingsManager:
             },
             'windows': {
                 'main_window': {
-                    'geometry': '800x350',
+                    'geometry': '1200x745',
                     'position': 'center'
                 },
                 'server_list': {
@@ -89,6 +89,9 @@ class SettingsManager:
                 'rate_limit_delay': 1,
                 'share_access_delay': 1,
                 'remember_api_key': False
+            },
+            'templates': {
+                'last_used': None
             },
             'backend': {
                 'mock_mode': False,
@@ -247,11 +250,18 @@ class SettingsManager:
         This ensures existing settings files get the new 350px height.
         """
         # Update legacy main window geometry settings
-        legacy_geometries = ['800x700', '1200x800', '800x550', '800x750']
+        legacy_geometries = [
+            '800x700',
+            '1200x800',
+            '800x550',
+            '800x750',
+            '800x350',
+            '900x250'
+        ]
         current_geometry = settings.get('windows', {}).get('main_window', {}).get('geometry')
         
         if current_geometry in legacy_geometries:
-            settings['windows']['main_window']['geometry'] = '800x350'
+            settings['windows']['main_window']['geometry'] = '1200x745'
             
         return settings
     
@@ -751,6 +761,16 @@ class SettingsManager:
 
         avoid_list = self.get_avoid_servers()
         return ip.strip() in avoid_list
+
+    # Template helpers -----------------------------------------------------
+
+    def get_last_template_slug(self) -> Optional[str]:
+        """Return slug/key of last-used scan template."""
+        return self.get_setting('templates.last_used', None)
+
+    def set_last_template_slug(self, slug: Optional[str]) -> None:
+        """Persist slug/key for last-used scan template."""
+        self.set_setting('templates.last_used', slug)
 
     def add_avoid_server(self, ip: Optional[str]) -> None:
         """

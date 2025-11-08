@@ -10,7 +10,9 @@ import re
 from typing import Dict, List, Optional, Callable, Tuple, Any
 
 
-def parse_output_stream(interface, stdout, output_lines: List[str], progress_callback: Optional[Callable]) -> None:
+def parse_output_stream(interface, stdout, output_lines: List[str],
+                        progress_callback: Optional[Callable],
+                        log_callback: Optional[Callable[[str], None]] = None) -> None:
     """
     Parse CLI output stream for progress indicators.
 
@@ -19,6 +21,7 @@ def parse_output_stream(interface, stdout, output_lines: List[str], progress_cal
         stdout: Process stdout stream
         output_lines: List to append output lines to
         progress_callback: Function to call with progress updates
+        log_callback: Function to call with raw CLI output lines (ANSI preserved)
 
     Design Decision: Regex patterns match the specific progress format
     used by the backend CLI for consistent progress tracking.
@@ -67,9 +70,16 @@ def parse_output_stream(interface, stdout, output_lines: List[str], progress_cal
         'reporting': re.compile(r'(?:Report|Intelligence|Step\s*4)', re.IGNORECASE)
     }
 
-    for line in stdout:
-        line = line.strip()
+    for raw_line in stdout:
+        stripped_line = raw_line.rstrip("\n")
+        line = stripped_line.strip()
         output_lines.append(line)
+
+        if log_callback:
+            try:
+                log_callback(stripped_line)
+            except Exception:
+                pass
 
         if not progress_callback:
             continue

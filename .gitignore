@@ -94,3 +94,5 @@ xsmbseek-config.json
 docs/*
 !docs/CHANGELOG.md
 !docs/USER_GUIDE.md
+# Keep sensitive/internal forms out of the public repo
+docs/conflict-resolution-form.odt

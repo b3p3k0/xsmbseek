@@ -16,7 +16,9 @@ from . import config
 from . import progress
 
 
-def execute_with_progress(interface, cmd: List[str], progress_callback: Optional[Callable],
+def execute_with_progress(interface, cmd: List[str],
+                         progress_callback: Optional[Callable],
+                         log_callback: Optional[Callable[[str], None]] = None,
                          timeout_override: Optional[int] = None) -> Dict:
     """
     Execute command with real-time progress tracking and configurable timeout.
@@ -25,6 +27,7 @@ def execute_with_progress(interface, cmd: List[str], progress_callback: Optional
         interface: BackendInterface instance
         cmd: Command list for subprocess
         progress_callback: Function to call with (percentage, message) updates
+        log_callback: Function to call with raw stdout lines (including ANSI codes)
         timeout_override: Optional timeout override in seconds (None = use config default)
 
     Returns:
@@ -92,7 +95,7 @@ def execute_with_progress(interface, cmd: List[str], progress_callback: Optional
         output_lines = []
         progress_thread = threading.Thread(
             target=progress.parse_output_stream,
-            args=(interface, process.stdout, output_lines, progress_callback)
+            args=(interface, process.stdout, output_lines, progress_callback, log_callback)
         )
         progress_thread.start()
 
@@ -258,5 +261,3 @@ def handle_servers_not_authenticated_error(interface, original_cmd: List[str], e
         "original_error": error_details,
         "recovery_action": "discovery_needed"
     }
-
-

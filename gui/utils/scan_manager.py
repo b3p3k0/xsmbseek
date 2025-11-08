@@ -74,6 +74,7 @@ class ScanManager:
         
         # Results tracking
         self.scan_results = {}
+        self.log_callback = None
         
         # Clean up any stale lock files on startup
         self._cleanup_stale_locks()
@@ -232,7 +233,8 @@ class ScanManager:
             pass
     
     def start_scan(self, scan_options: dict, backend_path: str,
-                  progress_callback: Callable[[float, str, str], None]) -> bool:
+                  progress_callback: Callable[[float, str, str], None],
+                  log_callback: Optional[Callable[[str], None]] = None) -> bool:
         """
         Start a new SMB security scan with extended options.
 
@@ -246,6 +248,7 @@ class ScanManager:
                 - api_key_override: API key override (None for config default)
             backend_path: Path to backend directory
             progress_callback: Function called with (percentage, status, phase)
+            log_callback: Function called with raw backend stdout lines for UI streaming
 
         Returns:
             True if scan started successfully, False otherwise
@@ -273,6 +276,7 @@ class ScanManager:
                 "scan_options": scan_options,
                 "status": "running"
             }
+            self.log_callback = log_callback
 
             # Start scan in background thread with new options
             self.scan_thread = threading.Thread(
@@ -380,12 +384,27 @@ class ScanManager:
         self._update_progress(10, "Starting scan execution...", "discovery")
 
         # Use the backend interface run_scan method but with enhanced parameters
-        # For now, use the existing run_scan method and let config overrides handle the rest
+        # Extract search strings from scan options
+        search_strings = scan_options.get('search_strings', [])
+
         return self.backend_interface.run_scan(
             countries,
-            self._handle_backend_progress,
-            additional_args=cli_args
+            progress_callback=self._handle_backend_progress,
+            log_callback=self._handle_backend_log_line,
+            additional_args=cli_args,
+            strings=search_strings
         )
+
+    def _handle_backend_log_line(self, line: str) -> None:
+        """Forward raw backend stdout lines to the registered log callback."""
+        if not self.log_callback:
+            return
+
+        try:
+            self.log_callback(line)
+        except Exception:
+            # Swallow logging errors to avoid crashing scan threads
+            pass
     
     def _handle_backend_progress(self, percentage: float, message: str) -> None:
         """
@@ -695,6 +714,7 @@ class ScanManager:
         """Clean up after scan completion or failure."""
         self.is_scanning = False
         self.remove_lock_file()
+        self.log_callback = None
         
         # Store final scan timestamp for results filtering
         if self.scan_results:

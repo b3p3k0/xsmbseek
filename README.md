@@ -74,6 +74,11 @@ xsmbseek uses a dual configuration system:
 - **xsmbseek-config.json**: GUI settings, SMBSeek path, database path
 - **SMBSeek configuration**: Handled by SMBSeek itself (`smbseek/conf/config.json`)
 
+### Scan Templates
+- Use the **Start New Scan** dialog’s Templates toolbar to save your favorite combinations of search strings, regions, and execution settings.
+- Templates are stored per-user under `~/.smbseek/templates/` and applying one simply repopulates the dialog fields (your underlying SMBSeek config stays untouched).
+- Save as many templates as you like, overwrite them when requirements change, or delete them from the same dropdown without leaving the scan flow.
+
 ##  Architecture
 
 ### Project Structure

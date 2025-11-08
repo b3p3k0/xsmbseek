@@ -20,6 +20,15 @@
 - `_focus_initial_field()` replaces the previous country-only focus helper to gracefully fall back if the search entry is unavailable (e.g., during tests).
 - Button panel now nests actions inside a right-aligned sub-frame so future additions (e.g., “Queue Scan”) can align without reworking the layout.
 
+**Visual Polish Backlog (captured for later)**
+- Tint each card header background/title text using theme accent colors to improve section scanning without hiding content.
+- Align gutters by applying the same horizontal padding to every left-column card (Search Strings still needs `padx=15` to match Country/Regions).
+- Refresh helper microcopy so hints reference the new two-column layout (e.g., “combines with region selections to the right”) and consider rendering hints in italic small text for a cleaner hierarchy.
+- Replace emoji icons in headings with a consistent monochrome glyph set to keep the dialog feeling professional while preserving quick recognition.
+
+- **Scan Templates Toolbar**: Added `TemplateStore` helper (`~/.smbseek/templates`) plus a Templates dropdown/Save/Delete controls in `ScanDialog`. Saves a raw form snapshot (search strings, manual country codes, region toggles, concurrency/delay fields, API override) and reapplies it on selection. Last-used template slug persists via `SettingsManager.templates.last_used`.
+- **Profile Manager Retirement**: Removed the dashboard “🗂 Profiles” button and the `profile_manager_dialog` module entirely; per-scan templates now cover the original use case without rewriting `smbseek/conf/config.json`.
+
 ### October 3, 2025 - Direct Scan Options Implementation
 **Changes Made:**
 - **Restored Complete Scan Options**: Re-implemented all advanced options in scan dialog with direct access interface

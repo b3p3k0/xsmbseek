@@ -11,12 +11,16 @@ while drill-down buttons allow detailed exploration without losing overview cont
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+import tkinter.font as tkfont
 import threading
 import time
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
 import sys
 import os
+import queue
+from collections import deque
+import re
 
 # Add utils to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
@@ -27,7 +31,6 @@ from style import get_theme, apply_theme_to_window
 from scan_manager import get_scan_manager
 from scan_dialog import show_scan_dialog
 from scan_results_dialog import show_scan_results_dialog
-from profile_manager_dialog import show_profile_manager
 
 
 class DashboardWidget:
@@ -74,7 +77,6 @@ class DashboardWidget:
         
         # UI components
         self.main_frame = None
-        self.status_frame = None
         self.progress_frame = None
         self.metrics_frame = None
         self.scan_button = None
@@ -83,9 +85,43 @@ class DashboardWidget:
         self.status_message = None
         
         # Progress tracking
-        self.progress_text = tk.StringVar()
-        self.progress_detail_text = tk.StringVar()
+        self.current_progress_summary = ""
         self.status_text = tk.StringVar()
+
+        # Live log viewer state
+        self.log_queue: "queue.Queue[str]" = queue.Queue()
+        self.log_history = deque(maxlen=500)
+        self.log_text_widget: Optional[tk.Text] = None
+        self.log_autoscroll = True
+        self._log_placeholder_visible = True
+        self.log_processing_job = None
+        self.log_jump_button = None
+        self.log_bg_color = "#111418"
+        self.log_fg_color = "#f5f5f5"
+        self.log_placeholder_color = "#9ea4b3"
+
+        # ANSI parsing helpers for preserving backend colors
+        self._ansi_pattern = re.compile(r"\x1b\[([\d;]*)m")
+        self._ansi_color_tag_map = {
+            "30": "ansi_fg_black",
+            "31": "ansi_fg_red",
+            "32": "ansi_fg_green",
+            "33": "ansi_fg_yellow",
+            "34": "ansi_fg_blue",
+            "35": "ansi_fg_magenta",
+            "36": "ansi_fg_cyan",
+            "37": "ansi_fg_white",
+            "90": "ansi_fg_bright_black",
+            "91": "ansi_fg_bright_red",
+            "92": "ansi_fg_bright_green",
+            "93": "ansi_fg_bright_yellow",
+            "94": "ansi_fg_bright_blue",
+            "95": "ansi_fg_bright_magenta",
+            "96": "ansi_fg_bright_cyan",
+            "97": "ansi_fg_bright_white"
+        }
+        self._ansi_color_tags = set(self._ansi_color_tag_map.values())
+        self.log_placeholder_text = "Scan output will appear here once a scan starts."
         
         # Scan button state management
         self.scan_button_state = "idle"  # idle, disabled_external, scanning, stopping, error
@@ -142,13 +178,13 @@ class DashboardWidget:
         
         # Build sections in order
         self._build_header_section()
-        self._build_status_section()
         self._build_progress_section()
         self._build_status_bar()
         
         # Initial scan state check and data load
         self._check_external_scans()
         self._refresh_dashboard_data()
+        self._process_log_queue()
     
     def _build_header_section(self) -> None:
         """Build responsive two-line header with title and action buttons."""
@@ -187,15 +223,6 @@ class DashboardWidget:
         self.theme.apply_to_widget(servers_button, "button_secondary")
         servers_button.pack(side=tk.LEFT, padx=(0, 5))
 
-        # NEW: Profiles button
-        profiles_button = tk.Button(
-            actions_frame,
-            text="🗂 Profiles",
-            command=self._open_profile_manager
-        )
-        self.theme.apply_to_widget(profiles_button, "button_secondary")
-        profiles_button.pack(side=tk.LEFT, padx=(0, 5))
-
         # Config button (existing functionality)
         config_button = tk.Button(
             actions_frame,
@@ -206,79 +233,390 @@ class DashboardWidget:
         config_button.pack(side=tk.LEFT)
         
     
-    def _build_status_section(self) -> None:
-        """Build status bar with system information."""
-        self.status_frame = tk.Frame(self.main_frame)
-        self.theme.apply_to_widget(self.status_frame, "status_bar")
-        self.status_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # Status text (left side)
-        status_label = tk.Label(
-            self.status_frame,
-            textvariable=self.status_text,
-            anchor="w",
-            bg=self.theme.colors["secondary_bg"],
-            fg=self.theme.colors["text_secondary"],
-            font=self.theme.fonts["status"]
-        )
-        status_label.pack(side=tk.LEFT, padx=5)
-        
-        # Last update time (right side)
-        self.update_time_label = tk.Label(
-            self.status_frame,
-            text="",
-            anchor="e",
-            bg=self.theme.colors["secondary_bg"],
-            fg=self.theme.colors["text_secondary"],
-            font=self.theme.fonts["status"]
-        )
-        self.update_time_label.pack(side=tk.RIGHT, padx=5)
-        
-        self.status_text.set("Ready | No active scans")
-    
     def _build_progress_section(self) -> None:
         """Build persistent progress display that's always visible."""
         self.progress_frame = tk.Frame(self.main_frame)
         self.theme.apply_to_widget(self.progress_frame, "card")
-        # Always visible - maintains consistent layout and provides scan status feedback
-        self.progress_frame.pack(fill=tk.X, pady=(0, 15))
+        self.progress_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
 
-        # Progress card now relies on text-only feedback after removing the progress bar.
+        self._build_log_viewer()
+        self._build_status_footer()
+        self.status_text.set("Ready | No active scans")
 
-        # Progress text (main status)
-        progress_label = tk.Label(
+    def _configure_log_tags(self) -> None:
+        """Configure text tags used for ANSI-colored output."""
+        if not self.log_text_widget:
+            return
+
+        mono_font = self.theme.fonts["mono"]
+        bold_font = (mono_font[0], mono_font[1], "bold")
+        self.log_text_widget.tag_configure("ansi_bold", font=bold_font)
+
+        color_map = {
+            "ansi_fg_black": "#7f8796",
+            "ansi_fg_red": "#ff7676",
+            "ansi_fg_green": "#7dd87d",
+            "ansi_fg_yellow": "#ffd666",
+            "ansi_fg_blue": "#76b9ff",
+            "ansi_fg_magenta": "#d692ff",
+            "ansi_fg_cyan": "#4dd0e1",
+            "ansi_fg_white": self.log_fg_color,
+            "ansi_fg_bright_black": "#a0a7b4",
+            "ansi_fg_bright_red": "#ff8b8b",
+            "ansi_fg_bright_green": "#8ef79a",
+            "ansi_fg_bright_yellow": "#ffe082",
+            "ansi_fg_bright_blue": "#90c8ff",
+            "ansi_fg_bright_magenta": "#f78bff",
+            "ansi_fg_bright_cyan": "#6fe8ff",
+            "ansi_fg_bright_white": "#ffffff"
+        }
+
+        for tag, color in color_map.items():
+            self.log_text_widget.tag_configure(tag, foreground=color)
+
+        self.log_text_widget.tag_configure(
+            "log_placeholder",
+            foreground=self.log_placeholder_color
+        )
+
+    def _render_log_placeholder(self) -> None:
+        """Display placeholder text when no log output is available."""
+        if not self.log_text_widget:
+            return
+
+        self.log_text_widget.configure(state=tk.NORMAL)
+        self.log_text_widget.delete("1.0", tk.END)
+        self.log_text_widget.insert(
+            tk.END,
+            f"{self.log_placeholder_text}\n",
+            ("log_placeholder",)
+        )
+        self.log_text_widget.configure(state=tk.DISABLED)
+        self._log_placeholder_visible = True
+        self.log_autoscroll = True
+        self._hide_log_jump_button()
+
+    def _reset_log_output(self, country: Optional[str]) -> None:
+        """Clear log output and add a friendly header for the new scan."""
+        self._clear_log_output()
+        target = country or "global"
+        self._append_log_line(f"GUI: awaiting backend output for {target} scan...")
+
+    def _append_log_line(self, line: str) -> None:
+        """Append a raw CLI line to the text widget preserving ANSI colors."""
+        if not self.log_text_widget or line is None:
+            return
+
+        previous_len = len(self.log_history)
+        self.log_history.append(line)
+
+        self.log_text_widget.configure(state=tk.NORMAL)
+        if self._log_placeholder_visible:
+            self.log_text_widget.delete("1.0", tk.END)
+            self._log_placeholder_visible = False
+
+        segments = self._parse_ansi_segments(line)
+        if not segments:
+            segments = [(line, ())]
+
+        for segment_text, tags in segments:
+            if segment_text:
+                self.log_text_widget.insert(tk.END, segment_text, tags)
+        self.log_text_widget.insert(tk.END, "\n")
+
+        if previous_len == self.log_history.maxlen:
+            self.log_text_widget.delete("1.0", "2.0")
+
+        self.log_text_widget.configure(state=tk.DISABLED)
+
+        if self.log_autoscroll:
+            self.log_text_widget.see(tk.END)
+
+        self._update_log_autoscroll_state()
+
+    def _parse_ansi_segments(self, text: str) -> List[tuple]:
+        """Split text into (segment, tags) respecting ANSI escape codes."""
+        segments = []
+        last_end = 0
+        active_tags: List[str] = []
+
+        for match in self._ansi_pattern.finditer(text):
+            start, end = match.span()
+            if start > last_end:
+                segments.append((text[last_end:start], tuple(active_tags)))
+
+            codes = match.group(1).split(";") if match.group(1) else ["0"]
+            active_tags = self._apply_ansi_codes(active_tags, codes)
+            last_end = end
+
+        if last_end < len(text):
+            segments.append((text[last_end:], tuple(active_tags)))
+
+        return segments
+
+    def _apply_ansi_codes(self, active_tags: List[str], codes: List[str]) -> List[str]:
+        """Update active tag list based on ANSI code sequence."""
+        tags = list(active_tags)
+        for code in codes:
+            if not code:
+                code = "0"
+
+            if code == "0":
+                tags.clear()
+            elif code == "1":
+                if "ansi_bold" not in tags:
+                    tags.append("ansi_bold")
+            elif code in self._ansi_color_tag_map:
+                tags = [t for t in tags if t not in self._ansi_color_tags]
+                tags.append(self._ansi_color_tag_map[code])
+
+        return tags
+
+    def _handle_scan_log_line(self, line: str) -> None:
+        """Queue log lines coming from background scan threads."""
+        if line is None:
+            return
+        self.log_queue.put(line)
+
+    def _process_log_queue(self) -> None:
+        """Drain queued log lines on the Tk thread."""
+        if not self.parent or not self.parent.winfo_exists():
+            return
+
+        try:
+            while True:
+                line = self.log_queue.get_nowait()
+                self._append_log_line(line)
+        except queue.Empty:
+            pass
+
+        self.log_processing_job = self.parent.after(150, self._process_log_queue)
+
+    def _update_log_autoscroll_state(self, *_args) -> None:
+        """Detect whether the viewer is scrolled to the bottom."""
+        if not self.log_text_widget:
+            return
+
+        at_bottom = self._is_log_at_bottom()
+        self.log_autoscroll = at_bottom
+
+        if at_bottom:
+            self._hide_log_jump_button()
+        else:
+            self._show_log_jump_button()
+
+    def _is_log_at_bottom(self) -> bool:
+        """Return True if the viewer is scrolled to the bottom."""
+        if not self.log_text_widget:
+            return True
+        start, end = self.log_text_widget.yview()
+        return end >= 0.995
+
+    def _scroll_log_to_latest(self) -> None:
+        """Scroll the viewer to the most recent line and resume autoscroll."""
+        if not self.log_text_widget:
+            return
+        self.log_text_widget.see(tk.END)
+        self.log_autoscroll = True
+        self._hide_log_jump_button()
+
+    def _show_log_jump_button(self) -> None:
+        """Display the jump-to-latest helper."""
+        if self.log_jump_button and not self.log_jump_button.winfo_ismapped():
+            self.log_jump_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+    def _hide_log_jump_button(self) -> None:
+        """Hide the jump-to-latest helper."""
+        if self.log_jump_button and self.log_jump_button.winfo_ismapped():
+            self.log_jump_button.pack_forget()
+
+    def _copy_log_output(self) -> None:
+        """Copy current log contents to clipboard."""
+        if not self.log_history:
+            return
+        try:
+            self.parent.clipboard_clear()
+            self.parent.clipboard_append("\n".join(self.log_history))
+        except tk.TclError:
+            pass
+
+    def _clear_log_output(self) -> None:
+        """Clear log viewer and reset placeholder."""
+        self.log_history.clear()
+        self._render_log_placeholder()
+
+    def _build_log_viewer(self) -> None:
+        """Create expanded live output viewer."""
+        log_container = tk.Frame(
             self.progress_frame,
-            textvariable=self.progress_text,
-            anchor="center",
+            bg=self.theme.colors["card_bg"],
+            highlightthickness=0
+        )
+        log_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(4, 14))
+
+        header_frame = tk.Frame(log_container, bg=self.theme.colors["card_bg"])
+        header_frame.pack(fill=tk.X, pady=(0, 6))
+
+        header_label = tk.Label(
+            header_frame,
+            text="Live Scan Output",
             bg=self.theme.colors["card_bg"],
             fg=self.theme.colors["text"],
-            font=self.theme.fonts["body"],
-            wraplength=560,      # expanded text handling for multi-line messages
-            justify="center"
+            font=self.theme.fonts["heading"]
         )
-        progress_label.pack(fill=tk.X, padx=10, pady=(14, 6))
+        header_label.pack(side=tk.LEFT)
 
-        # Detailed progress text (host/share details)
-        progress_detail_label = tk.Label(
+        self.log_jump_button = tk.Button(
+            header_frame,
+            text="Jump to Latest",
+            command=self._scroll_log_to_latest
+        )
+        self.theme.apply_to_widget(self.log_jump_button, "button_secondary")
+        self.log_jump_button.pack(side=tk.RIGHT, padx=(5, 0))
+        self.log_jump_button.pack_forget()  # hidden until user scrolls away
+
+        text_frame = tk.Frame(log_container, bg=self.log_bg_color)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        base_log_lines = 10
+        extra_log_height_px = 300  # 150px original bump + 150px new request
+        expanded_lines = base_log_lines + self._pixels_to_text_lines(extra_log_height_px)
+        self.log_text_widget = tk.Text(
+            text_frame,
+            height=expanded_lines,
+            wrap=tk.NONE,
+            bg=self.log_bg_color,
+            fg=self.log_fg_color,
+            font=self.theme.fonts["mono"],
+            state=tk.DISABLED,
+            relief="solid",
+            borderwidth=1,
+            highlightthickness=0,
+            insertbackground=self.log_fg_color
+        )
+        self.log_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.log_text_widget.configure(yscrollcommand=scrollbar.set)
+        scrollbar.configure(command=self.log_text_widget.yview)
+
+        # Track manual scrolling to toggle autoscroll state
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>", "<ButtonRelease-1>", "<Shift-MouseWheel>"):
+            self.log_text_widget.bind(sequence, self._update_log_autoscroll_state, add="+")
+
+        self._configure_log_tags()
+        self._render_log_placeholder()
+    
+    def _build_status_footer(self) -> None:
+        """Place status summary + clipboard controls below the console."""
+        footer = tk.Frame(
             self.progress_frame,
-            textvariable=self.progress_detail_text,
-            anchor="center",
+            bg=self.theme.colors["card_bg"],
+            highlightthickness=0
+        )
+        footer.pack(fill=tk.X, padx=10, pady=(0, 12))
+        footer.columnconfigure(0, weight=1)
+        footer.columnconfigure(1, weight=0)
+
+        status_summary_label = tk.Label(
+            footer,
+            textvariable=self.status_text,
+            anchor="w",
+            justify="left",
             bg=self.theme.colors["card_bg"],
             fg=self.theme.colors["text_secondary"],
-            font=self.theme.fonts["small"],
-            wraplength=560,      # expanded text handling for multi-line messages
-            justify="center"
+            font=self.theme.fonts["status"],
+            wraplength=520
         )
-        progress_detail_label.pack(fill=tk.X, padx=10, pady=(0, 14))
+        status_summary_label.grid(row=0, column=0, sticky="w")
 
-        # Initialize progress section to idle state
-        self._set_idle_progress_state()
+        self.update_time_label = tk.Label(
+            footer,
+            text="",
+            anchor="w",
+            bg=self.theme.colors["card_bg"],
+            fg=self.theme.colors["text_secondary"],
+            font=self.theme.fonts["status"]
+        )
+        self.update_time_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        button_frame = tk.Frame(
+            footer,
+            bg=self.theme.colors["card_bg"]
+        )
+        button_frame.grid(row=0, column=1, rowspan=2, sticky="se", padx=(10, 0))
+
+        copy_button = tk.Button(
+            button_frame,
+            text="Copy All",
+            command=self._copy_log_output
+        )
+        self.theme.apply_to_widget(copy_button, "button_secondary")
+        copy_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        clear_button = tk.Button(
+            button_frame,
+            text="Clear",
+            command=self._clear_log_output
+        )
+        self.theme.apply_to_widget(clear_button, "button_secondary")
+        clear_button.pack(side=tk.LEFT)
     
-    def _set_idle_progress_state(self) -> None:
-        """Set progress section to idle state with ready message."""
-        self.progress_text.set("Ready to scan")
-        self.progress_detail_text.set("Click 'Start Scan' to begin security assessment")
-
+    def _pixels_to_text_lines(self, pixels: int) -> int:
+        """
+        Convert a pixel delta into Tk Text height units (lines).
+        
+        Text widgets size their height in lines (TkDocs Text tutorial),
+        so we translate requested padding into line counts using the active
+        monospace font metrics. This avoids fragile hard-coded guesses.
+        """
+        if pixels <= 0:
+            return 0
+        try:
+            log_font = tkfont.Font(font=self.theme.fonts["mono"])
+            line_height = max(1, log_font.metrics("linespace"))
+        except tk.TclError:
+            # Safe fallback during shutdown/detached widgets
+            line_height = 14
+        extra_lines = pixels // line_height
+        if pixels % line_height:
+            extra_lines += 1
+        return extra_lines
+    
+    def _update_progress_summary(self, summary: Optional[str], detail: Optional[str] = None) -> None:
+        """Update scan status text without using the old banner."""
+        summary_text = summary.strip() if summary else ""
+        detail_text = detail.strip() if detail else ""
+        parts = []
+        if summary_text:
+            parts.append(summary_text)
+        if detail_text:
+            parts.append(detail_text)
+        status_body = " - ".join(parts) if parts else "In progress"
+        self.current_progress_summary = status_body
+        self.status_text.set(f"Scanning: {status_body}")
+    
+    def _log_status_event(self, message: str) -> None:
+        """Append controller-level status lines to the console output."""
+        if not message:
+            return
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        entry = f"[status {timestamp}] {message}"
+        try:
+            self.log_queue.put(entry)
+        except Exception:
+            # Fallback if queue is unavailable (e.g., during shutdown)
+            try:
+                self._append_log_line(entry)
+            except Exception:
+                pass
+    
+    def _reset_scan_status(self) -> None:
+        """Return dashboard status indicators to the ready state."""
+        self.current_progress_summary = ""
+        self.status_text.set("Ready | No active scans")
+    
     def _refresh_dashboard_data(self) -> None:
         """
         Refresh all dashboard data from database.
@@ -367,15 +705,11 @@ class DashboardWidget:
             scan_type: Type of scan being performed
             countries: Countries being scanned
         """
-        # Show progress section
-        self.progress_frame.pack(fill=tk.X, pady=(0, 15), before=self.metrics_frame)
-
-        # Reset progress
-        self.progress_text.set(f"Starting {scan_type} scan for {', '.join(countries)}...")
-        self.progress_detail_text.set("Initializing...")
-
-        # Update status
-        self.status_text.set(f"Scanning: {scan_type} | Countries: {', '.join(countries)}")
+        countries_text = ", ".join(countries) if countries else "global"
+        summary = f"Starting {scan_type} scan"
+        detail = f"Countries: {countries_text}"
+        self._update_progress_summary(summary, detail)
+        self._log_status_event(f"{summary} for {countries_text}")
     
     def update_scan_progress(self, percentage: Optional[float], message: str) -> None:
         """
@@ -386,14 +720,13 @@ class DashboardWidget:
             message: Progress message to display
         """
         if percentage is not None:
-            # Show percentage in main progress text
-            self.progress_text.set(f"{percentage:.0f}% complete")
-            # Set detail line to message or empty string (never literal "None")
-            self.progress_detail_text.set(message if message else "")
+            summary = f"{percentage:.0f}% complete"
+            detail = message if message else None
         else:
-            # No percentage, use message in main text or fallback
-            self.progress_text.set(message if message else "Processing...")
-            self.progress_detail_text.set("")
+            summary = message if message else "Processing..."
+            detail = None
+
+        self._update_progress_summary(summary, detail)
 
         # Force UI update without triggering window auto-resize
         # Using update() instead of update_idletasks() to prevent geometry recalculation
@@ -417,25 +750,19 @@ class DashboardWidget:
         if success:
             successful = results.get("successful_auth", 0)
             total = results.get("hosts_tested", 0)
-            # Set both main line and detail line for consistent display pattern
-            self.progress_text.set(f"Scan complete: {successful}/{total} servers accessible")
-            self.progress_detail_text.set("100% complete")
+            summary = f"Scan complete: {successful}/{total} servers accessible"
+            self._update_progress_summary(summary, "Refreshing dashboard...")
+            self._log_status_event(summary)
 
             # Refresh dashboard with new data (clear cache for fresh Recent Discoveries count)
             self.parent.after(2000, self._refresh_after_scan_completion)
         else:
-            self.progress_text.set("Scan failed - check backend connection")
-            self.progress_detail_text.set("")
+            summary = "Scan failed - check backend connection"
+            self._update_progress_summary(summary, None)
+            self._log_status_event(summary)
 
-        # Hide progress section after delay
-        self.parent.after(5000, self._hide_progress_section)
-    
-    def _hide_progress_section(self) -> None:
-        """Return progress section to idle state."""
-        # Don't hide the frame - return to idle state for consistent layout
-        # This ensures both text lines are properly reset to idle state
-        self._set_idle_progress_state()
-        self.status_text.set("Ready")
+        # Return to ready state after giving the user time to read the summary
+        self.parent.after(5000, self._reset_scan_status)
     
     def _show_quick_scan_dialog(self) -> None:
         """Show scan configuration dialog and start scan."""
@@ -478,10 +805,14 @@ class DashboardWidget:
             success = self.scan_manager.start_scan(
                 scan_options=scan_options,
                 backend_path=backend_path,
-                progress_callback=self._handle_scan_progress
+                progress_callback=self._handle_scan_progress,
+                log_callback=self._handle_scan_log_line
             )
             
             if success:
+                # Reset viewer and note which scan is running
+                self._reset_log_output(scan_options.get('country'))
+
                 # Update button state to scanning
                 self._update_scan_button_state("scanning")
                 
@@ -550,7 +881,8 @@ class DashboardWidget:
     def _handle_scan_progress(self, percentage: float, status: str, phase: str) -> None:
         """Handle progress updates from scan manager."""
         try:
-            # Update main progress text with phase and percentage
+            # Update status text with phase/percentage info
+            detail_text = status if status else None
             if phase:
                 phase_display = phase.replace("_", " ").title()
                 if percentage is not None:
@@ -561,12 +893,13 @@ class DashboardWidget:
                 if percentage is not None:
                     progress_text = f"{percentage:.0f}% complete"
                 else:
-                    progress_text = "Processing..."
+                    progress_text = None
 
-            self.progress_text.set(progress_text)
+            if not progress_text:
+                progress_text = detail_text if detail_text else "Processing..."
+                detail_text = None
 
-            # Update detailed status (never show literal "None")
-            self.progress_detail_text.set(status if status else "")
+            self._update_progress_summary(progress_text, detail_text)
 
             # Force UI update safely without triggering window auto-resize
             # Using update() instead of update_idletasks() to prevent geometry recalculation
@@ -585,15 +918,10 @@ class DashboardWidget:
     
     def _show_scan_progress(self, country: Optional[str]) -> None:
         """Transition progress display to active scanning state."""
-        # Progress section is already visible, just update content for active state
-
-        # Reset progress text to start
         scan_target = country if country else "global"
-        self.progress_text.set(f"Initializing {scan_target} scan...")
-        self.progress_detail_text.set("Setting up scan parameters...")
-
-        # Update status
-        self.status_text.set(f"Scanning: {scan_target}")
+        summary = f"Initializing {scan_target} scan"
+        self._update_progress_summary(summary, "Setting up scan parameters...")
+        self._log_status_event(summary)
     
     def _monitor_scan_completion(self) -> None:
         """Monitor scan for completion and show results."""
@@ -602,9 +930,6 @@ class DashboardWidget:
                 if not self.scan_manager.is_scanning:
                     # Get results first to check status
                     results = self.scan_manager.get_scan_results()
-
-                    # Always hide progress section for layout consistency
-                    self._hide_progress_section()
 
                     # Reset button state to idle
                     self._update_scan_button_state("idle")
@@ -621,9 +946,17 @@ class DashboardWidget:
                         except Exception:
                             # Fallback - just print message
                             print("Scan cancelled by user")
+                        self._log_status_event("Scan cancelled by user request")
+                        self._reset_scan_status()
                     elif results:
                         # Show normal results dialog for completed/failed scans
                         self._show_scan_results(results)
+                        try:
+                            self.parent.after(5000, self._reset_scan_status)
+                        except tk.TclError:
+                            pass
+                    else:
+                        self._reset_scan_status()
                     # If no results, scan may have been cancelled before any results were recorded
 
                     # Refresh dashboard data with cache invalidation
@@ -655,7 +988,7 @@ class DashboardWidget:
                 
                 # Try to clean up
                 try:
-                    self._hide_progress_section()
+                    self._reset_scan_status()
                 except:
                     pass
         
@@ -707,25 +1040,6 @@ class DashboardWidget:
         """Open application configuration dialog."""
         if self.drill_down_callback:
             self.drill_down_callback("app_config", {})
-
-    def _open_profile_manager(self) -> None:
-        """Open profile manager dialog with comprehensive error handling."""
-        try:
-            result = show_profile_manager(self.parent, self.config_path)
-
-            # Handle result messaging
-            if result:
-                if result.get("success") and result.get("message"):
-                    if "loaded" in result["message"].lower():
-                        messagebox.showinfo("Profile Manager", result["message"])
-                    else:
-                        # Status messages (backup info, save confirmations)
-                        print(f"Profile Manager: {result['message']}")
-                elif not result.get("success"):
-                    messagebox.showwarning("Profile Manager", result.get("message", "Operation failed"))
-
-        except Exception as e:
-            messagebox.showerror("Profile Manager Error", f"Failed to open profile manager: {e}")
     
     
     def _open_drill_down(self, window_type: str) -> None:
@@ -961,18 +1275,15 @@ class DashboardWidget:
         warning_label.pack(pady=(0, 20), padx=20)
         
         # Progress context (if available)
-        try:
-            current_progress = self.progress_text.get()
-            if current_progress:
-                progress_label = self.theme.create_styled_label(
-                    dialog,
-                    f"Current: {current_progress}",
-                    "small",
-                    fg=self.theme.colors["text_secondary"]
-                )
-                progress_label.pack(pady=(0, 20))
-        except:
-            pass
+        current_progress = getattr(self, "current_progress_summary", "")
+        if current_progress:
+            progress_label = self.theme.create_styled_label(
+                dialog,
+                f"Current: {current_progress}",
+                "small",
+                fg=self.theme.colors["text_secondary"]
+            )
+            progress_label.pack(pady=(0, 20))
         
         # Buttons frame
         buttons_frame = tk.Frame(dialog)

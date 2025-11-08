@@ -340,8 +340,9 @@ class BackendInterface:
         }
     
     def run_scan(self, countries: List[str], progress_callback: Optional[Callable] = None,
+                 log_callback: Optional[Callable[[str], None]] = None,
                  use_recent_filtering: bool = True, recent_days: Optional[int] = None,
-                 additional_args: List[str] = None) -> Dict:
+                 additional_args: List[str] = None, strings: List[str] = None) -> Dict:
         """
         Execute complete SMBSeek scan workflow.
 
@@ -351,6 +352,7 @@ class BackendInterface:
             use_recent_filtering: Whether to apply recent filtering (default True)
             recent_days: Days for recent filtering (None uses config default)
             additional_args: Additional CLI arguments to pass to the scan command
+            strings: List of search strings to include in Shodan query
 
         Returns:
             Dictionary with scan results and statistics
@@ -370,6 +372,11 @@ class BackendInterface:
             countries_str = ",".join(countries)
             cmd.extend(["--country", countries_str])
 
+        # Add search strings if provided
+        if strings:
+            for search_string in strings:
+                cmd.extend(["--string", search_string])
+
         # Add any additional CLI arguments
         if additional_args:
             cmd.extend(additional_args)
@@ -387,10 +394,20 @@ class BackendInterface:
         # Execute with config overrides if needed
         if config_overrides:
             with self._temporary_config_override(config_overrides):
-                return process_runner.execute_with_progress(self, cmd, progress_callback)
+                return process_runner.execute_with_progress(
+                    self,
+                    cmd,
+                    progress_callback,
+                    log_callback=log_callback
+                )
         else:
             # Use default config values (no override needed)
-            return process_runner.execute_with_progress(self, cmd, progress_callback)
+            return process_runner.execute_with_progress(
+                self,
+                cmd,
+                progress_callback,
+                log_callback=log_callback
+            )
     
     def run_discover(self, countries: List[str], progress_callback: Optional[Callable] = None) -> Dict:
         """

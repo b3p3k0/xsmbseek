@@ -4,6 +4,9 @@ All notable changes to the SMBSeek GUI project will be documented in this file.
 
 ## [1.2.1] - 2025-11-08
 
+### Added
+- **Scan Templates**: Start New Scan dialog now includes a Templates toolbar so you can save/load per-scan parameter sets (search strings, regions, filters, execution tuning) without touching the global SMBSeek config file.
+
 ### Changed
 - **Scan Dialog Layout Refresh**: Start New Scan dialog now opens at 1210x825 with a responsive two-column layout that splits targeting controls (search strings, country, regions, filters) on the left and execution controls (rescan, concurrency, rate limits, API key) on the right for greatly reduced scrolling.
 - **Button Placement**: Cancel and Start buttons are grouped on the lower-right with shared spacing for a consistent call-to-action row.
@@ -11,6 +14,9 @@ All notable changes to the SMBSeek GUI project will be documented in this file.
 
 ### Fixed
 - **Country Input Padding**: Country Code card uses the same horizontal padding as neighboring sections, eliminating the subtle width mismatch reported in UI review.
+
+### Removed
+- **Legacy Profile Manager Dialog**: The dashboard Profiles button and its file-based save/load workflow have been retired in favor of in-dialog scan templates.
 
 ## [1.2.0] - 2025-09-05
 

@@ -9,7 +9,7 @@ while directing users to configuration editor for advanced settings.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 import os
 import sys
 import json
@@ -22,6 +22,7 @@ from typing import Optional, Callable, Dict, Any
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
 
 from style import get_theme
+from template_store import TemplateStore
 
 
 class ScanDialog:
@@ -75,6 +76,7 @@ class ScanDialog:
         # Optional components for future use (prefixed to avoid static analyzer warnings)
         self._backend_interface = backend_interface
         self._settings_manager = settings_manager
+        self.template_store = TemplateStore(settings_manager=settings_manager)
 
         # Dialog result
         self.result = None
@@ -88,6 +90,11 @@ class ScanDialog:
         self.country_entry = None
         self.search_strings_var = tk.StringVar()
         self.search_strings_entry = None
+        self.template_var = tk.StringVar()
+        self.template_dropdown = None
+        self._template_label_to_slug: Dict[str, str] = {}
+        self._selected_template_slug: Optional[str] = None
+        self._pending_template_slug = self.template_store.get_last_used()
 
         # Region selection UI variables
         self.africa_var = tk.BooleanVar(value=False)
@@ -125,8 +132,8 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("1210x825")
-        self.dialog.minsize(900, 600)
+        self.dialog.geometry("1210x870")
+        self.dialog.minsize(900, 650)
         
         # Apply theme
         self.theme.apply_to_widget(self.dialog, "main_window")
@@ -174,6 +181,9 @@ class ScanDialog:
         
         # Setup event handlers
         self._setup_event_handlers()
+
+        # Apply last-used template after widgets and handlers exist
+        self._auto_apply_pending_template()
 
         # Focus on default field
         self._focus_initial_field()
@@ -240,6 +250,8 @@ class ScanDialog:
         options_frame = tk.Frame(self.content_frame)
         self.theme.apply_to_widget(options_frame, "card")
         options_frame.pack(fill=tk.X, padx=20, pady=5)
+
+        self._create_template_toolbar(options_frame)
         
         # Section title
         section_title = self.theme.create_styled_label(
@@ -307,6 +319,220 @@ class ScanDialog:
         self._create_concurrency_options(right_column)
         self._create_rate_limit_options(right_column)
         self._create_api_key_option(right_column)
+
+    def _create_template_toolbar(self, parent_frame: tk.Frame) -> None:
+        """Create template selector + actions above scan parameters."""
+        toolbar = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(toolbar, "card")
+        toolbar.pack(fill=tk.X, padx=15, pady=(10, 0))
+
+        label = self.theme.create_styled_label(
+            toolbar,
+            "Templates:",
+            "body"
+        )
+        label.pack(side=tk.LEFT)
+
+        self.template_dropdown = ttk.Combobox(
+            toolbar,
+            textvariable=self.template_var,
+            state="readonly",
+            width=32
+        )
+        self.template_dropdown.pack(side=tk.LEFT, padx=(10, 10))
+        self.template_dropdown.bind("<<ComboboxSelected>>", self._handle_template_selected)
+
+        save_button = tk.Button(
+            toolbar,
+            text="💾 Save Current",
+            command=self._prompt_save_template,
+            font=self.theme.fonts["small"]
+        )
+        self.theme.apply_to_widget(save_button, "button_secondary")
+        save_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.delete_template_button = tk.Button(
+            toolbar,
+            text="🗑 Delete",
+            command=self._delete_selected_template,
+            font=self.theme.fonts["small"]
+        )
+        self.theme.apply_to_widget(self.delete_template_button, "button_secondary")
+        self.delete_template_button.pack(side=tk.LEFT)
+
+        self._refresh_template_toolbar()
+
+    def _refresh_template_toolbar(self, select_slug: Optional[str] = None) -> None:
+        """Refresh template dropdown values."""
+        if not self.template_dropdown:
+            return
+
+        templates = self.template_store.list_templates()
+        self._template_label_to_slug = {tpl.name: tpl.slug for tpl in templates}
+        values = [tpl.name for tpl in templates]
+
+        if not values:
+            self.template_dropdown.configure(state="disabled", values=["No templates saved"])
+            self.template_var.set("No templates saved")
+            self._selected_template_slug = None
+            self.delete_template_button.configure(state=tk.DISABLED)
+            return
+
+        self.template_dropdown.configure(state="readonly", values=values)
+        self.delete_template_button.configure(state=tk.NORMAL)
+
+        slug_to_label = {tpl.slug: tpl.name for tpl in templates}
+        desired_slug = select_slug or self._pending_template_slug or self.template_store.get_last_used()
+        if desired_slug and desired_slug in slug_to_label:
+            label = slug_to_label[desired_slug]
+        else:
+            label = values[0]
+            desired_slug = self._template_label_to_slug.get(label)
+
+        self.template_var.set(label)
+        self._selected_template_slug = desired_slug
+
+    def _handle_template_selected(self, _event=None) -> None:
+        """Apply template when user selects it from dropdown."""
+        label = self.template_var.get()
+        slug = self._template_label_to_slug.get(label)
+        self._selected_template_slug = slug
+        if slug:
+            self._apply_template_by_slug(slug)
+
+    def _prompt_save_template(self) -> None:
+        """Ask for template name and persist current form state."""
+        name = simpledialog.askstring("Save Template", "Template name:", parent=self.dialog)
+        if not name:
+            return
+        name = name.strip()
+        if not name:
+            messagebox.showwarning("Save Template", "Template name cannot be empty.")
+            return
+
+        slug = TemplateStore.slugify(name)
+        existing = self.template_store.load_template(slug)
+        if existing:
+            overwrite = messagebox.askyesno(
+                "Overwrite Template",
+                f"A template named '{name}' already exists. Overwrite it?",
+                parent=self.dialog
+            )
+            if not overwrite:
+                return
+
+        form_state = self._capture_form_state()
+        template = self.template_store.save_template(name, form_state)
+        self._refresh_template_toolbar(select_slug=template.slug)
+        messagebox.showinfo("Template Saved", f"Template '{name}' saved.")
+
+    def _delete_selected_template(self) -> None:
+        """Delete currently selected template."""
+        slug = self._selected_template_slug
+        if not slug:
+            messagebox.showinfo("Delete Template", "No template selected.")
+            return
+
+        label = self.template_var.get()
+        confirmed = messagebox.askyesno(
+            "Delete Template",
+            f"Delete template '{label}'?",
+            parent=self.dialog
+        )
+        if not confirmed:
+            return
+
+        deleted = self.template_store.delete_template(slug)
+        if deleted:
+            messagebox.showinfo("Template Deleted", f"Template '{label}' removed.")
+        else:
+            messagebox.showwarning("Delete Template", "Failed to delete template.")
+
+        self._refresh_template_toolbar()
+
+    def _capture_form_state(self) -> Dict[str, Any]:
+        """Capture current ScanDialog form state for template storage."""
+        return {
+            "search_strings": self.search_strings_var.get(),
+            "country_code": self.country_var.get(),
+            "regions": {
+                "africa": self.africa_var.get(),
+                "asia": self.asia_var.get(),
+                "europe": self.europe_var.get(),
+                "north_america": self.north_america_var.get(),
+                "oceania": self.oceania_var.get(),
+                "south_america": self.south_america_var.get()
+            },
+            "max_results": self.max_results_var.get(),
+            "recent_hours": self.recent_hours_var.get(),
+            "rescan_all": self.rescan_all_var.get(),
+            "rescan_failed": self.rescan_failed_var.get(),
+            "discovery_concurrency": self.discovery_concurrency_var.get(),
+            "access_concurrency": self.access_concurrency_var.get(),
+            "rate_limit_delay": self.rate_limit_delay_var.get(),
+            "share_access_delay": self.share_access_delay_var.get(),
+            "api_key_override": self.api_key_var.get()
+        }
+
+    def _apply_form_state(self, state: Dict[str, Any]) -> None:
+        """Populate form fields from saved template state."""
+        self.search_strings_var.set(state.get("search_strings", ""))
+        self.country_var.set(state.get("country_code", ""))
+
+        regions = state.get("regions", {})
+        self.africa_var.set(bool(regions.get("africa", False)))
+        self.asia_var.set(bool(regions.get("asia", False)))
+        self.europe_var.set(bool(regions.get("europe", False)))
+        self.north_america_var.set(bool(regions.get("north_america", False)))
+        self.oceania_var.set(bool(regions.get("oceania", False)))
+        self.south_america_var.set(bool(regions.get("south_america", False)))
+
+        max_results = state.get("max_results")
+        if max_results is not None:
+            try:
+                self.max_results_var.set(int(max_results))
+            except (ValueError, tk.TclError):
+                pass
+
+        recent_hours = state.get("recent_hours")
+        self.recent_hours_var.set("" if recent_hours in (None, "") else str(recent_hours))
+
+        self.rescan_all_var.set(bool(state.get("rescan_all", False)))
+        self.rescan_failed_var.set(bool(state.get("rescan_failed", False)))
+
+        for var, key in [
+            (self.discovery_concurrency_var, "discovery_concurrency"),
+            (self.access_concurrency_var, "access_concurrency"),
+            (self.rate_limit_delay_var, "rate_limit_delay"),
+            (self.share_access_delay_var, "share_access_delay")
+        ]:
+            value = state.get(key)
+            if value is not None:
+                var.set(str(value))
+
+        self.api_key_var.set(state.get("api_key_override", ""))
+        self._update_region_status()
+
+    def _apply_template_by_slug(self, slug: str, *, silent: bool = False) -> None:
+        """Load template by slug and populate form."""
+        template = self.template_store.load_template(slug)
+        if not template:
+            if not silent:
+                messagebox.showwarning("Template Missing", "Selected template could not be loaded.")
+            self._refresh_template_toolbar()
+            return
+
+        self._apply_form_state(template.form_state)
+        self.template_store.set_last_used(slug)
+        self._selected_template_slug = slug
+
+    def _auto_apply_pending_template(self) -> None:
+        """Apply last-used template after UI is ready."""
+        if not self._pending_template_slug:
+            return
+        self._apply_template_by_slug(self._pending_template_slug, silent=True)
+        self._refresh_template_toolbar(select_slug=self._pending_template_slug)
+        self._pending_template_slug = None
 
     def _create_region_selection(self, parent_frame: tk.Frame) -> None:
         """Create region selection with checkboxes."""

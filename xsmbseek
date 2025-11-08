@@ -35,6 +35,11 @@ from typing import Dict, Any, Optional
 SCRIPT_DIR = Path(__file__).parent.absolute()
 GUI_DIR = SCRIPT_DIR / "gui"
 
+# Canonical window sizing for the xsmbseek frontend
+WINDOW_WIDTH = 1200
+WINDOW_HEIGHT = 745
+WINDOW_GEOMETRY = f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}"
+
 # Add GUI components and utils to path
 sys.path.insert(0, str(GUI_DIR / "components"))
 sys.path.insert(0, str(GUI_DIR / "utils"))
@@ -87,7 +92,6 @@ class XSMBSeekConfig:
             },
             "gui": {
                 "theme": "default",
-                "window_geometry": "900x250",
                 "interface_mode": "simple",
                 "last_used_config": None
             },
@@ -506,10 +510,9 @@ class XSMBSeekGUI:
         self.root = tk.Tk()
         self.root.title("xsmbseek - SMBSeek GUI Frontend")
         
-        # Set window geometry from config
-        geometry = self.config.config["gui"]["window_geometry"]
-        self.root.geometry(geometry)
-        self.root.minsize(900, 240)
+        # Force canonical geometry; users may enlarge but not shrink below this
+        self.root.geometry(WINDOW_GEOMETRY)
+        self.root.minsize(WINDOW_WIDTH, WINDOW_HEIGHT)
         
         # Apply theme
         apply_theme_to_window(self.root)
@@ -528,7 +531,7 @@ class XSMBSeekGUI:
         """
         Center the main window on screen using fixed dimensions.
         
-        Forces window to maintain intended 800x250 size instead of
+        Forces window to maintain intended 1200x745 size instead of
         auto-sizing based on content. This ensures consistent compact
         layout across different screen configurations.
         
@@ -537,8 +540,8 @@ class XSMBSeekGUI:
         """
         # Force our intended dimensions instead of querying auto-sized dimensions
         # This prevents tkinter from expanding the window based on content
-        target_width = 900   # Intended width for dashboard
-        target_height = 250  # Intended height with expanded text progress area
+        target_width = WINDOW_WIDTH
+        target_height = WINDOW_HEIGHT
         
         # Calculate center position based on intended dimensions
         screen_width = self.root.winfo_screenwidth()
@@ -557,8 +560,8 @@ class XSMBSeekGUI:
         but allows users to manually resize larger without forcing back to defaults.
         Implements industry-standard UX behavior for window management.
         """
-        min_width = 900
-        min_height = 240
+        min_width = WINDOW_WIDTH
+        min_height = WINDOW_HEIGHT
         
         # Get current geometry
         current_geometry = self.root.geometry()
@@ -778,9 +781,7 @@ class XSMBSeekGUI:
             if not response:
                 return
         
-        # Save current window geometry
-        geometry = self.root.geometry()
-        self.config.config["gui"]["window_geometry"] = geometry
+        # Persist any pending configuration changes (geometry is fixed by design)
         self.config.save_config()
         
         # Clean up and exit
