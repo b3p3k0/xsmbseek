@@ -13,6 +13,7 @@ All notable changes to the SMBSeek GUI project will be documented in this file.
 - **Scan Dialog Layout Refresh**: Start New Scan dialog now opens at 1210x825 with a responsive two-column layout that splits targeting controls (search strings, country, regions, filters) on the left and execution controls (rescan, concurrency, rate limits, API key) on the right for greatly reduced scrolling.
 - **Button Placement**: Cancel and Start buttons are grouped on the lower-right with shared spacing for a consistent call-to-action row.
 - **Input Focus Flow**: Search Strings field now receives initial keyboard focus to match its new prominence at the top of the dialog.
+- **Server Detail Layout**: Removed the legacy "Security Assessment" block and now render probe snapshots directly beneath the Share Access section for better readability.
 
 ### Fixed
 - **Country Input Padding**: Country Code card uses the same horizontal padding as neighboring sections, eliminating the subtle width mismatch reported in UI review.

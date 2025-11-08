@@ -165,7 +165,7 @@ def explore_server(server_data):
         )
 
 
-def _format_server_details(server: Dict[str, Any]) -> str:
+def _format_server_details(server: Dict[str, Any], probe_section: Optional[str] = None) -> str:
     """Format server details for display with accessible shares list."""
     # Extract share information
     accessible_list = server.get('accessible_shares_list', '')
@@ -202,8 +202,7 @@ def _format_server_details(server: Dict[str, Any]) -> str:
    Accessible Share List:
 {share_list_text}
 
-🔒 Security Assessment:
-   Vulnerabilities: {server.get('vulnerabilities', 0)}
+{probe_section or '🔍 Probe:\n   No probe has been run for this host yet.\n'}
 
 📝 Additional Notes:
    This server was discovered through SMBSeek scanning and shows
@@ -224,15 +223,13 @@ def _render_server_details(
     server: Dict[str, Any],
     probe_result: Optional[Dict[str, Any]]
 ) -> None:
-    """Render server base details plus probe section."""
-    base_text = _format_server_details(server)
+    """Render server details with probe section embedded."""
     probe_text = _format_probe_section(probe_result)
+    full_text = _format_server_details(server, probe_text)
 
     text_widget.configure(state=tk.NORMAL)
     text_widget.delete("1.0", tk.END)
-    text_widget.insert(tk.END, base_text)
-    text_widget.insert(tk.END, "\n")
-    text_widget.insert(tk.END, probe_text)
+    text_widget.insert(tk.END, full_text)
     text_widget.configure(state=tk.DISABLED)
 
 
@@ -369,13 +366,14 @@ def _start_probe(
 
             detail_window.after(0, on_success)
         except Exception as exc:
+            error_message = str(exc)
 
             def on_error():
                 probe_state["running"] = False
                 if probe_button:
                     probe_button.configure(state=tk.NORMAL)
                 status_var.set("Probe failed.")
-                messagebox.showerror("Probe Failed", str(exc))
+                messagebox.showerror("Probe Failed", error_message)
 
             detail_window.after(0, on_error)
 

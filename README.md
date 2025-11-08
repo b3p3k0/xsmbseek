@@ -21,7 +21,12 @@ xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek 
    cd xsmbseek
    ```
 
-2. **Install SMBSeek (required external dependency):**
+2. **Install GUI dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Install SMBSeek (required external dependency):**
    ```bash
    # Clone SMBSeek as a sibling directory (recommended)
    cd ..
@@ -33,7 +38,7 @@ xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek 
    cd ../xsmbseek
    ```
 
-3. **Run xsmbseek:**
+4. **Run xsmbseek:**
    ```bash
    ./xsmbseek
    ```
