@@ -7,6 +7,7 @@ All notable changes to the SMBSeek GUI project will be documented in this file.
 ### Added
 - **Scan Templates**: Start New Scan dialog now includes a Templates toolbar so you can save/load per-scan parameter sets (search strings, regions, filters, execution tuning) without touching the global SMBSeek config file.
   - Ships with six curated presets (stored under `templates/default_scan_templates/`) seeded from secybr’s public Shodan dork tutorials to showcase real-world use cases on first launch.
+- **Server List Probe Column**: The server list now shows a 🧪 status indicator (○ = unprobed, △ = probed, ✖ reserved) next to the favorite/avoid columns so analysts can immediately see which hosts have snapshots.
 - **Server Detail Probe**: Added a Probe dialog to the Server Details view. It lets analysts adjust limits, enumerate a bounded number of directories/files per accessible share using the original anonymous credentials, caches the result under `~/.smbseek/probes/`, and renders an ASCII tree inside the details view. Requires the `impacket` library.
 
 ### Changed

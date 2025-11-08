@@ -81,6 +81,9 @@ xsmbseek uses a dual configuration system:
 - **xsmbseek-config.json**: GUI settings, SMBSeek path, database path
 - **SMBSeek configuration**: Handled by SMBSeek itself (`smbseek/conf/config.json`)
 
+### Server List Enhancements
+- Favorite (★), Avoid (☠), and Probe (🧪) columns sit at the front of the server table. The Probe indicator shows ○ when a host hasn’t been probed yet, △ once a probe snapshot exists, and ✖ is reserved for future “issue detected” states.
+
 ### Scan Templates
 - Use the **Start New Scan** dialog’s Templates toolbar to save your favorite combinations of search strings, regions, and execution settings.
 - Templates live under `~/.smbseek/templates/`; applying one simply repopulates the dialog fields (your underlying SMBSeek config stays untouched).

@@ -16,7 +16,8 @@ from gui.utils import probe_cache, probe_runner
 from gui.utils.probe_runner import ProbeError
 
 
-def show_server_detail_popup(parent_window, server_data, theme, settings_manager=None):
+def show_server_detail_popup(parent_window, server_data, theme, settings_manager=None,
+                             probe_status_callback=None):
     """
     Show server detail popup window.
 
@@ -81,7 +82,8 @@ def show_server_detail_popup(parent_window, server_data, theme, settings_manager
             probe_state,
             settings_manager,
             theme,
-            probe_button
+            probe_button,
+            probe_status_callback
         )
     )
     theme.apply_to_widget(probe_button, "button_secondary")
@@ -323,7 +325,8 @@ def _start_probe(
     probe_state: Dict[str, Any],
     settings_manager,
     probe_button: Optional[tk.Button],
-    config_override: Optional[Dict[str, int]] = None
+    config_override: Optional[Dict[str, int]] = None,
+    probe_status_callback=None
 ) -> None:
     """Trigger background probe run."""
     if probe_state.get("running"):
@@ -363,6 +366,8 @@ def _start_probe(
                 if probe_button:
                     probe_button.configure(state=tk.NORMAL)
                 _render_server_details(text_widget, server_data, result)
+                if probe_status_callback:
+                    probe_status_callback(ip_address, 'clean')
 
             detail_window.after(0, on_success)
         except Exception as exc:
@@ -388,7 +393,8 @@ def _open_probe_dialog(
     probe_state: Dict[str, Any],
     settings_manager,
     theme,
-    probe_button: Optional[tk.Button]
+    probe_button: Optional[tk.Button],
+    probe_status_callback=None
 ) -> None:
     """Show settings + launch dialog for probes."""
     if probe_state.get("running"):
@@ -442,7 +448,8 @@ def _open_probe_dialog(
             probe_state,
             settings_manager,
             probe_button,
-            config_override=new_config
+            config_override=new_config,
+            probe_status_callback=probe_status_callback
         )
 
     button_frame = tk.Frame(dialog)

@@ -29,6 +29,7 @@ except ImportError:
 
 # Import modular components
 from . import export, details, filters, table
+from gui.utils import probe_cache
 
 
 class ServerListWindow:
@@ -55,6 +56,7 @@ class ServerListWindow:
         self.theme = get_theme()
         self.window_data = window_data or {}
         self.settings_manager = settings_manager
+        self.probe_status_map = {}
 
         # Favorites and avoid functionality
         self.favorites_only = tk.BooleanVar()
@@ -109,11 +111,15 @@ class ServerListWindow:
             "Shares": "desc",         # high numbers first (10, 5, 1)
             "Accessible": "desc",     # high share count first (sorts by number of shares)
             "Last Seen": "desc",      # MOST RECENT dates first (2024-01-02, 2024-01-01, 2023-12-31)
-            "Country": "asc"          # alphabetical A-Z
+            "Country": "asc",         # alphabetical A-Z
+            "probe": "desc"
         }
 
         self._create_window()
         self._load_data()
+
+        if self.settings_manager:
+            self.probe_status_map = self.settings_manager.get_probe_status_map()
 
     def _create_window(self) -> None:
         """Create the server list window."""
@@ -365,6 +371,7 @@ class ServerListWindow:
             )
 
             self.all_servers = servers
+            self._attach_probe_status(self.all_servers)
 
             # Set initial date filter if requested
             if self.filter_recent and self.last_scan_time:
@@ -450,7 +457,7 @@ class ServerListWindow:
         # Get server data
         item = selected_items[0]
         values = self.tree.item(item)["values"]
-        ip_address = values[2]  # IP Address is now at index 2 due to favorite and avoid columns
+        ip_address = values[3]  # IP Address now at index 3 (fav/avoid/probe)
 
         # Find server in data
         server_data = next(
@@ -467,7 +474,13 @@ class ServerListWindow:
 
     def _show_server_detail_popup(self, server_data: Dict[str, Any]) -> None:
         """Show server detail popup using details module."""
-        details.show_server_detail_popup(self.window, server_data, self.theme, self.settings_manager)
+        details.show_server_detail_popup(
+            self.window,
+            server_data,
+            self.theme,
+            self.settings_manager,
+            probe_status_callback=self._handle_probe_status_update
+        )
 
     def _export_selected_servers(self) -> None:
         """Export selected servers using export module."""
@@ -489,6 +502,75 @@ class ServerListWindow:
         export.show_export_menu(
             self.window, self.filtered_servers, "all", self.theme, get_export_engine()
         )
+
+    # Probe status helpers
+
+    def _attach_probe_status(self, servers: List[Dict[str, Any]]) -> None:
+        if not self.settings_manager:
+            for server in servers:
+                server["probe_status"] = 'unprobed'
+                server["probe_status_emoji"] = self._probe_status_to_emoji('unprobed')
+            return
+
+        for server in servers:
+            ip = server.get("ip_address")
+            status = self._determine_probe_status(ip)
+            server["probe_status"] = status
+            server["probe_status_emoji"] = self._probe_status_to_emoji(status)
+
+    def _determine_probe_status(self, ip_address: Optional[str]) -> str:
+        if not ip_address:
+            return 'unprobed'
+
+        status = self.settings_manager.get_probe_status(ip_address)
+        if status == 'unprobed':
+            cache_path = probe_cache.get_cache_path(ip_address)
+            if cache_path.exists():
+                status = 'clean'
+                self.settings_manager.set_probe_status(ip_address, status)
+        self.probe_status_map[ip_address] = status
+        return status
+
+    @staticmethod
+    def _probe_status_to_emoji(status: str) -> str:
+        mapping = {
+            'clean': '△',
+            'issue': '✖',
+            'unprobed': '○'
+        }
+        return mapping.get(status, '⚪')
+
+    def _handle_probe_status_update(self, ip_address: str, status: str) -> None:
+        if not ip_address:
+            return
+        if self.settings_manager:
+            self.settings_manager.set_probe_status(ip_address, status)
+        self.probe_status_map[ip_address] = status
+
+        for server in self.all_servers:
+            if server.get("ip_address") == ip_address:
+                server["probe_status"] = status
+                server["probe_status_emoji"] = self._probe_status_to_emoji(status)
+
+        selected_ips = self._get_selected_ips()
+        self._apply_filters()
+        self._restore_selection(selected_ips)
+
+    def _get_selected_ips(self) -> List[str]:
+        ips = []
+        for item in self.tree.selection():
+            values = self.tree.item(item)["values"]
+            if len(values) >= 4:
+                ips.append(values[3])
+        return ips
+
+    def _restore_selection(self, ip_addresses: List[str]) -> None:
+        if not ip_addresses:
+            return
+        for item in self.tree.get_children():
+            values = self.tree.item(item)["values"]
+            if len(values) >= 4 and values[3] in ip_addresses:
+                self.tree.selection_add(item)
 
     # Mode and filter management
     def _toggle_mode(self) -> None:

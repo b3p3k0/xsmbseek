@@ -32,6 +32,7 @@ def create_server_table(parent, theme, callbacks):
     columns = (
         "favorite",
         "avoid",
+        "probe",
         "IP Address",
         "Shares",
         "Accessible",
@@ -51,6 +52,7 @@ def create_server_table(parent, theme, callbacks):
     tree.column("#0", width=0, stretch=False)  # Hide tree column
     tree.column("favorite", width=40, anchor="center")  # Favorite star column
     tree.column("avoid", width=40, anchor="center")  # Avoid skull column
+    tree.column("probe", width=50, anchor="center")
     tree.column("IP Address", width=160, anchor="w")
     tree.column("Shares", width=100, anchor="center")
     tree.column("Accessible", width=780, anchor="w")  # Wide for extensive share lists
@@ -63,6 +65,8 @@ def create_server_table(parent, theme, callbacks):
             tree.heading(col, text="★", command=lambda c=col: callbacks.get('on_sort_column', lambda x: None)(c))
         elif col == "avoid":
             tree.heading(col, text="☠", command=lambda c=col: callbacks.get('on_sort_column', lambda x: None)(c))
+        elif col == "probe":
+            tree.heading(col, text="○", command=lambda c=col: callbacks.get('on_sort_column', lambda x: None)(c))
         else:
             tree.heading(col, text=col, command=lambda c=col: callbacks.get('on_sort_column', lambda x: None)(c))
 
@@ -145,11 +149,13 @@ def update_table_display(tree, filtered_servers: List[Dict[str, Any]], settings_
         else:
             skull = "💀"
 
-        # Insert row with new column structure including favorite star and avoid skull
+        probe_emoji = server.get("probe_status_emoji", "⚪")
+
+        # Insert row with new column structure including favorite, avoid, probe columns
         item_id = tree.insert(
             "",
             "end",
-            values=(star, skull, ip_addr, shares_count, accessible_shares, last_seen, country)
+            values=(star, skull, probe_emoji, ip_addr, shares_count, accessible_shares, last_seen, country)
         )
 
         # Add visual indicators for shares count
@@ -176,8 +182,8 @@ def get_selected_server_data(tree, filtered_servers: List[Dict[str, Any]]) -> Li
 
     for item in selected_items:
         values = tree.item(item)["values"]
-        if len(values) >= 3:
-            selected_ips.append(values[2])  # IP address is now at index 2 due to favorite and avoid columns
+        if len(values) >= 4:
+            selected_ips.append(values[3])  # IP address now at index 3 (after favorite/avoid/probe)
 
     selected_servers = [
         server for server in filtered_servers
@@ -307,10 +313,10 @@ def handle_treeview_click(tree, event, settings_manager, callbacks):
         return None
 
     values = tree.item(item)["values"]
-    if not values or len(values) < 3:
+    if not values or len(values) < 4:
         return None
 
-    ip_address = values[2]  # IP is at index 2
+    ip_address = values[3]  # IP is now at index 3
 
     # Handle favorite column clicks (#1, since #0 hidden)
     if column == '#1':
@@ -380,11 +386,11 @@ def handle_double_click(tree, event, filtered_servers: List[Dict[str, Any]], det
 
     # Use identical logic as "View Details" button - get data from clicked row
     values = tree.item(clicked_item)["values"]
-    if not values or len(values) < 3:
+    if not values or len(values) < 4:
         messagebox.showerror("Error", "Unable to retrieve server data.")
         return False
 
-    ip_address = values[2]  # IP Address is now at index 2 due to favorite and avoid columns
+    ip_address = values[3]  # IP Address is now at index 3 due to favorite/avoid/probe columns
 
     # Same data lookup as working "View Details" button
     server_data = next(

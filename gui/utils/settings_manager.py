@@ -93,7 +93,8 @@ class SettingsManager:
             'probe': {
                 'max_directories_per_share': 3,
                 'max_files_per_directory': 5,
-                'share_timeout_seconds': 10
+                'share_timeout_seconds': 10,
+                'status_by_ip': {}
             },
             'templates': {
                 'last_used': None
@@ -776,6 +777,34 @@ class SettingsManager:
     def set_last_template_slug(self, slug: Optional[str]) -> None:
         """Persist slug/key for last-used scan template."""
         self.set_setting('templates.last_used', slug)
+
+    # Probe status helpers -------------------------------------------------
+
+    def get_probe_status_map(self) -> Dict[str, str]:
+        """Return immutable copy of probe status map (ip -> status)."""
+        status_map = self.get_setting('probe.status_by_ip', {}) or {}
+        # Return a shallow copy to prevent accidental in-place edits.
+        return dict(status_map)
+
+    def get_probe_status(self, ip_address: str) -> str:
+        """Return stored status for an IP (defaults to 'unprobed')."""
+        if not ip_address:
+            return 'unprobed'
+        status_map = self.get_setting('probe.status_by_ip', {}) or {}
+        return status_map.get(ip_address, 'unprobed')
+
+    def set_probe_status(self, ip_address: str, status: str) -> None:
+        """Persist probe status for an IP."""
+        if not ip_address:
+            return
+        allowed = {'unprobed', 'clean', 'issue'}
+        if status not in allowed:
+            status = 'unprobed'
+        status_map = self.get_setting('probe.status_by_ip', {}) or {}
+        if status_map.get(ip_address) == status:
+            return
+        status_map[ip_address] = status
+        self.set_setting('probe.status_by_ip', status_map)
 
     def add_avoid_server(self, ip: Optional[str]) -> None:
         """
