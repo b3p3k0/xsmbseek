@@ -646,6 +646,7 @@ class DashboardWidget:
         which is critical for displaying updated Recent Discoveries count.
         """
         try:
+            self._unlock_status_updates()
             # Clear cache to force fresh database queries
             self.db_reader.clear_cache()
             
@@ -654,6 +655,9 @@ class DashboardWidget:
         except Exception as e:
             print(f"Dashboard refresh error after scan completion: {e}")
             # Continue anyway
+        finally:
+            self._lock_status_updates()
+            self._status_refresh_pending = False
 
     def _update_status_display(self, summary: Dict[str, Any]) -> None:
         """Update status bar information."""
@@ -703,7 +707,23 @@ class DashboardWidget:
                 self.status_text.set("Using mock data - database unavailable")
             except:
                 self.status_text.set("Dashboard unavailable - check backend")
-    
+
+    def _schedule_post_scan_refresh(self, delay_ms: int = 2000) -> None:
+        """Schedule a status-refreshing dashboard update after scans finish."""
+        if self._status_refresh_pending:
+            return
+        self._status_refresh_pending = True
+        self.parent.after(delay_ms, self._refresh_after_scan_completion)
+
+    def _unlock_status_updates(self) -> None:
+        """Allow status summary text to update on next refresh."""
+        self._status_static_mode = False
+        self._status_summary_initialized = False
+
+    def _lock_status_updates(self) -> None:
+        """Freeze status summary text until explicitly unlocked."""
+        self._status_static_mode = True
+
     
     def start_scan_progress(self, scan_type: str, countries: List[str]) -> None:
         """
@@ -763,11 +783,12 @@ class DashboardWidget:
             self._log_status_event(summary)
 
             # Refresh dashboard with new data (clear cache for fresh Recent Discoveries count)
-            self.parent.after(2000, self._refresh_after_scan_completion)
+            self._schedule_post_scan_refresh(delay_ms=2000)
         else:
             summary = "Scan failed - check backend connection"
             self._update_progress_summary(summary, None)
             self._log_status_event(summary)
+            self._schedule_post_scan_refresh(delay_ms=2000)
 
         # Return to ready state after giving the user time to read the summary
         self.parent.after(5000, self._reset_scan_status)

@@ -27,6 +27,16 @@
 - Replace emoji icons in headings with a consistent monochrome glyph set to keep the dialog feeling professional while preserving quick recognition.
 
 - **Scan Templates Toolbar**: Added `TemplateStore` helper (`~/.smbseek/templates`) plus a Templates dropdown/Save/Delete controls in `ScanDialog`. Saves a raw form snapshot (search strings, manual country codes, region toggles, concurrency/delay fields, API override) and reapplies it on selection. Last-used template slug persists via `SettingsManager.templates.last_used`. On initialization we seed six curated JSON presets from `templates/default_scan_templates/` (derived from [secybr’s Shodan tutorial collection](https://secybr.com/posts/shodan-tutorials-for-best-practicies/)) so first-run users see practical examples. The “Legacy SMBv1 Lab Sweep” preset assumes SMBSeek is launched with whatever SMB1 flag your deployment requires before running.
+
+**Planning Template Reference (Nov 8, 2025)**
+- Example (Status Refresh Plan):
+  - **Who:** `DashboardWidget` methods (`finish_scan_progress`, `_refresh_after_scan_completion`).
+  - **What:** Unlock static status label, refresh summary once per scan, then relock.
+  - **Where:** `gui/components/dashboard.py` near existing status helpers.
+  - **When:** Immediately after scans conclude (success or failure).
+  - **Why:** Keep mid-scan noise out of the label but still show fresh “Last Scan” data.
+- **DO:** Spell out concrete files/lines, clarify triggers (“after scan completes”), tie each bullet to the 5Ws.
+- **DON’T:** Hand-wave with “just update UI” or omit the rationale/owner—future agents need enough info to continue without guessing.
 - **Profile Manager Retirement**: Removed the dashboard “🗂 Profiles” button and the `profile_manager_dialog` module entirely; per-scan templates now cover the original use case without rewriting `smbseek/conf/config.json`.
 
 ### October 3, 2025 - Direct Scan Options Implementation
