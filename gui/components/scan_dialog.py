@@ -132,7 +132,7 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("1210x870")
+        self.dialog.geometry("1275x915")
         self.dialog.minsize(900, 650)
         
         # Apply theme
@@ -282,12 +282,11 @@ class ScanDialog:
         country_container.pack(fill=tk.X, padx=15, pady=(0, 10))
         
         # Country label and input
-        country_label = self.theme.create_styled_label(
+        country_heading = self._create_accent_heading(
             country_container,
-            "📌 Country Code (optional):",
-            "body"
+            "📌 Country Code (optional)"
         )
-        country_label.pack(anchor="w")
+        country_heading.pack(fill=tk.X)
         
         # Country input with example
         country_input_frame = tk.Frame(country_container)
@@ -304,10 +303,11 @@ class ScanDialog:
         
         example_label = self.theme.create_styled_label(
             country_input_frame,
-            "  (e.g., US, GB, CA - combines with region selections below)",
+            "  (e.g., US, GB, CA — combines with region selections to the right)",
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        example_label.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         example_label.pack(side=tk.LEFT)
         
         self._create_region_selection(left_column)
@@ -361,6 +361,20 @@ class ScanDialog:
         self.delete_template_button.pack(side=tk.LEFT)
 
         self._refresh_template_toolbar()
+
+    def _create_accent_heading(self, parent: tk.Widget, text: str) -> tk.Label:
+        """Create a heading label with accent background for readability."""
+        label = tk.Label(
+            parent,
+            text=text,
+            anchor="w",
+            padx=10,
+            pady=4,
+            bg=self.theme.colors["accent"],
+            fg="white",
+            font=self.theme.fonts["heading"]
+        )
+        return label
 
     def _refresh_template_toolbar(self, select_slug: Optional[str] = None) -> None:
         """Refresh template dropdown values."""
@@ -541,12 +555,11 @@ class ScanDialog:
         region_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Section title
-        title_label = self.theme.create_styled_label(
+        title_heading = self._create_accent_heading(
             region_container,
-            "📍 Region Selection:",
-            "body"
+            "📍 Region Selection"
         )
-        title_label.pack(anchor="w", padx=5, pady=(10, 5))
+        title_heading.pack(fill=tk.X, pady=(0, 10))
 
         # Region checkboxes in a compact 3x2 grid
         checkboxes_frame = tk.Frame(region_container)
@@ -674,12 +687,11 @@ class ScanDialog:
         strings_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
-        strings_label = self.theme.create_styled_label(
+        strings_heading = self._create_accent_heading(
             strings_container,
-            "🔍 Search Strings (optional):",
-            "body"
+            "🔍 Search Strings (optional)"
         )
-        strings_label.pack(anchor="w")
+        strings_heading.pack(fill=tk.X)
 
         # Input frame
         input_frame = tk.Frame(strings_container)
@@ -703,10 +715,11 @@ class ScanDialog:
         # Description label
         desc_label = self.theme.create_styled_label(
             desc_frame,
-            '(e.g., Documents, "My Files", Videos - quoted for multi-word)',
+            '(e.g., Documents, "My Files", Videos — use quotes for multi-word terms)',
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        desc_label.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         desc_label.pack(side=tk.LEFT)
 
         # Status label (for showing string count and validation)
@@ -725,12 +738,11 @@ class ScanDialog:
         max_results_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
-        max_results_label = self.theme.create_styled_label(
+        max_results_heading = self._create_accent_heading(
             max_results_container,
-            "🔢 Max Shodan Results:",
-            "body"
+            "🔢 Max Shodan Results"
         )
-        max_results_label.pack(anchor="w")
+        max_results_heading.pack(fill=tk.X)
 
         # Input frame
         input_frame = tk.Frame(max_results_container)
@@ -749,10 +761,11 @@ class ScanDialog:
         # Description
         desc_label = self.theme.create_styled_label(
             input_frame,
-            "  (1-1000, default: 1000)",
+            "  (1–1000, default: 1000)",
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        desc_label.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         desc_label.pack(side=tk.LEFT)
 
     def _create_recent_hours_option(self, parent_frame: tk.Frame) -> None:
@@ -762,12 +775,11 @@ class ScanDialog:
         recent_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
-        recent_label = self.theme.create_styled_label(
+        recent_heading = self._create_accent_heading(
             recent_container,
-            "⏱️ Recent Hours Filter:",
-            "body"
+            "⏱️ Recent Hours Filter"
         )
-        recent_label.pack(anchor="w")
+        recent_heading.pack(fill=tk.X)
 
         # Input frame
         input_frame = tk.Frame(recent_container)
@@ -786,10 +798,11 @@ class ScanDialog:
         # Description
         desc_label = self.theme.create_styled_label(
             input_frame,
-            "  (hours, empty for default)",
+            "  (hours; leave blank for config default)",
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        desc_label.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         desc_label.pack(side=tk.LEFT)
 
     def _create_rescan_options(self, parent_frame: tk.Frame) -> None:
@@ -799,12 +812,11 @@ class ScanDialog:
         rescan_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
-        rescan_label = self.theme.create_styled_label(
+        rescan_heading = self._create_accent_heading(
             rescan_container,
-            "🔁 Rescan Options:",
-            "body"
+            "🔁 Rescan Options"
         )
-        rescan_label.pack(anchor="w")
+        rescan_heading.pack(fill=tk.X)
 
         # Checkboxes frame
         checkboxes_frame = tk.Frame(rescan_container)
@@ -837,12 +849,11 @@ class ScanDialog:
         self.theme.apply_to_widget(concurrency_container, "card")
         concurrency_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
-        title_label = self.theme.create_styled_label(
+        concurrency_heading = self._create_accent_heading(
             concurrency_container,
-            "🧵 Backend Concurrency:",
-            "body"
+            "🧵 Backend Concurrency"
         )
-        title_label.pack(anchor="w")
+        concurrency_heading.pack(fill=tk.X)
 
         validate_cmd = self.dialog.register(self._validate_integer_input)
 
@@ -873,6 +884,7 @@ class ScanDialog:
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        discovery_hint.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         discovery_hint.pack(side=tk.LEFT, padx=(8, 0))
 
         access_row = tk.Frame(concurrency_container)
@@ -902,6 +914,7 @@ class ScanDialog:
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        access_hint.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         access_hint.pack(side=tk.LEFT, padx=(8, 0))
 
         helper_label = self.theme.create_styled_label(
@@ -926,12 +939,11 @@ class ScanDialog:
         self.theme.apply_to_widget(delay_container, "card")
         delay_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
-        title_label = self.theme.create_styled_label(
+        delay_heading = self._create_accent_heading(
             delay_container,
-            "🐢 Rate Limit Delays (seconds):",
-            "body"
+            "🐢 Rate Limit Delays (seconds)"
         )
-        title_label.pack(anchor="w")
+        delay_heading.pack(fill=tk.X)
 
         validate_cmd = self.dialog.register(self._validate_integer_input)
 
@@ -962,6 +974,7 @@ class ScanDialog:
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        rate_hint.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         rate_hint.pack(side=tk.LEFT, padx=(8, 0))
 
         share_row = tk.Frame(delay_container)
@@ -991,6 +1004,7 @@ class ScanDialog:
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        share_hint.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         share_hint.pack(side=tk.LEFT, padx=(8, 0))
 
         helper_label = self.theme.create_styled_label(
@@ -1016,12 +1030,11 @@ class ScanDialog:
         api_container.pack(fill=tk.X, padx=15, pady=(0, 10))
 
         # Label
-        api_label = self.theme.create_styled_label(
+        api_heading = self._create_accent_heading(
             api_container,
-            "🔑 API Key Override:",
-            "body"
+            "🔑 API Key Override"
         )
-        api_label.pack(anchor="w")
+        api_heading.pack(fill=tk.X)
 
         # Input frame
         input_frame = tk.Frame(api_container)
@@ -1045,6 +1058,7 @@ class ScanDialog:
             "small",
             fg=self.theme.colors["text_secondary"]
         )
+        desc_label.configure(font=(self.theme.fonts["small"][0], self.theme.fonts["small"][1], "italic"))
         desc_label.pack(side=tk.LEFT, padx=(5, 0))
 
     def _create_config_section(self) -> None:
