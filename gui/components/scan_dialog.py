@@ -13,6 +13,8 @@ from tkinter import ttk, messagebox
 import os
 import sys
 import json
+import csv
+import io
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
@@ -80,8 +82,12 @@ class ScanDialog:
         
         # UI components
         self.dialog = None
+        self.content_canvas = None
+        self.content_frame = None
         self.country_var = tk.StringVar()
         self.country_entry = None
+        self.search_strings_var = tk.StringVar()
+        self.search_strings_entry = None
 
         # Region selection UI variables
         self.africa_var = tk.BooleanVar(value=False)
@@ -119,8 +125,8 @@ class ScanDialog:
         """Create the scan configuration dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Start New Scan")
-        self.dialog.geometry("680x1200")
-        self.dialog.minsize(400, 250)
+        self.dialog.geometry("1210x825")
+        self.dialog.minsize(900, 600)
         
         # Apply theme
         self.theme.apply_to_widget(self.dialog, "main_window")
@@ -132,7 +138,35 @@ class ScanDialog:
         # Center dialog
         self._center_dialog()
         
-        # Build UI
+        # Scrollable content area
+        content_wrapper = tk.Frame(self.dialog, bg=self.theme.colors["primary_bg"])
+        content_wrapper.pack(fill=tk.BOTH, expand=True)
+        scrollbar = ttk.Scrollbar(content_wrapper, orient=tk.VERTICAL)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.content_canvas = tk.Canvas(
+            content_wrapper,
+            highlightthickness=0,
+            borderwidth=0,
+            bg=self.theme.colors["primary_bg"],
+            yscrollcommand=scrollbar.set
+        )
+        self.content_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.configure(command=self.content_canvas.yview)
+
+        self.content_frame = tk.Frame(self.content_canvas, bg=self.theme.colors["primary_bg"])
+        self.content_canvas.create_window((0, 0), window=self.content_frame, anchor="nw")
+
+        self.content_frame.bind(
+            "<Configure>",
+            lambda e: self.content_canvas.configure(scrollregion=self.content_canvas.bbox("all"))
+        )
+        for widget in (self.content_canvas, self.content_frame):
+            widget.bind("<MouseWheel>", self._on_mousewheel)
+            widget.bind("<Button-4>", self._on_mousewheel)  # Linux scroll up
+            widget.bind("<Button-5>", self._on_mousewheel)  # Linux scroll down
+
+        # Build UI inside scrollable area
         self._create_header()
         self._create_scan_options()
         self._create_config_section()
@@ -141,8 +175,8 @@ class ScanDialog:
         # Setup event handlers
         self._setup_event_handlers()
 
-        # Focus on country field
-        self._focus_country_field()
+        # Focus on default field
+        self._focus_initial_field()
     
     def _center_dialog(self) -> None:
         """Center dialog on parent window."""
@@ -161,10 +195,26 @@ class ScanDialog:
         y = parent_y + (parent_height // 2) - (height // 2)
         
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _on_mousewheel(self, event) -> None:
+        """Enable mouse wheel scrolling for the dialog content."""
+        if not self.content_canvas:
+            return
+
+        delta = 0
+        if getattr(event, "delta", 0):
+            delta = -1 if event.delta > 0 else 1
+        elif getattr(event, "num", None) == 4:
+            delta = -1
+        elif getattr(event, "num", None) == 5:
+            delta = 1
+
+        if delta:
+            self.content_canvas.yview_scroll(delta, "units")
     
     def _create_header(self) -> None:
         """Create dialog header with title and description."""
-        header_frame = tk.Frame(self.dialog)
+        header_frame = tk.Frame(self.content_frame)
         self.theme.apply_to_widget(header_frame, "main_window")
         header_frame.pack(fill=tk.X, padx=20, pady=(15, 5))
         
@@ -187,7 +237,7 @@ class ScanDialog:
     
     def _create_scan_options(self) -> None:
         """Create scan configuration options."""
-        options_frame = tk.Frame(self.dialog)
+        options_frame = tk.Frame(self.content_frame)
         self.theme.apply_to_widget(options_frame, "card")
         options_frame.pack(fill=tk.X, padx=20, pady=5)
         
@@ -198,9 +248,24 @@ class ScanDialog:
             "heading"
         )
         section_title.pack(anchor="w", padx=15, pady=(10, 5))
+
+        # Two-column layout to keep dialog height manageable
+        columns_frame = tk.Frame(options_frame)
+        self.theme.apply_to_widget(columns_frame, "card")
+        columns_frame.pack(fill=tk.BOTH, padx=15, pady=(0, 10))
+
+        left_column = tk.Frame(columns_frame)
+        self.theme.apply_to_widget(left_column, "card")
+        left_column.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+
+        right_column = tk.Frame(columns_frame)
+        self.theme.apply_to_widget(right_column, "card")
+        right_column.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Left column: target scope + filters
+        self._create_search_strings_option(left_column)
         
-        # Country selection
-        country_container = tk.Frame(options_frame)
+        country_container = tk.Frame(left_column)
         self.theme.apply_to_widget(country_container, "card")
         country_container.pack(fill=tk.X, padx=15, pady=(0, 10))
         
@@ -232,27 +297,16 @@ class ScanDialog:
             fg=self.theme.colors["text_secondary"]
         )
         example_label.pack(side=tk.LEFT)
+        
+        self._create_region_selection(left_column)
+        self._create_max_results_option(left_column)
+        self._create_recent_hours_option(left_column)
 
-        # Region selection
-        self._create_region_selection(options_frame)
-
-        # Max Shodan Results
-        self._create_max_results_option(options_frame)
-
-        # Recent Hours Filter
-        self._create_recent_hours_option(options_frame)
-
-        # Rescan Options
-        self._create_rescan_options(options_frame)
-
-        # Backend concurrency controls
-        self._create_concurrency_options(options_frame)
-
-        # Rate limit delays
-        self._create_rate_limit_options(options_frame)
-
-        # API Key Override
-        self._create_api_key_option(options_frame)
+        # Right column: execution controls
+        self._create_rescan_options(right_column)
+        self._create_concurrency_options(right_column)
+        self._create_rate_limit_options(right_column)
+        self._create_api_key_option(right_column)
 
     def _create_region_selection(self, parent_frame: tk.Frame) -> None:
         """Create region selection with checkboxes."""
@@ -387,6 +441,57 @@ class ScanDialog:
         self.south_america_var.set(False)
         self._update_region_status()
 
+    def _create_search_strings_option(self, parent_frame: tk.Frame) -> None:
+        """Create search strings input option."""
+        strings_container = tk.Frame(parent_frame)
+        self.theme.apply_to_widget(strings_container, "card")
+        strings_container.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        # Label
+        strings_label = self.theme.create_styled_label(
+            strings_container,
+            "🔍 Search Strings (optional):",
+            "body"
+        )
+        strings_label.pack(anchor="w")
+
+        # Input frame
+        input_frame = tk.Frame(strings_container)
+        self.theme.apply_to_widget(input_frame, "card")
+        input_frame.pack(fill=tk.X, pady=(5, 0))
+
+        # Entry field
+        self.search_strings_entry = tk.Entry(
+            input_frame,
+            textvariable=self.search_strings_var,
+            width=40,
+            font=self.theme.fonts["body"]
+        )
+        self.search_strings_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Description and status
+        desc_frame = tk.Frame(strings_container)
+        self.theme.apply_to_widget(desc_frame, "card")
+        desc_frame.pack(fill=tk.X, pady=(5, 0))
+
+        # Description label
+        desc_label = self.theme.create_styled_label(
+            desc_frame,
+            '(e.g., Documents, "My Files", Videos - quoted for multi-word)',
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        desc_label.pack(side=tk.LEFT)
+
+        # Status label (for showing string count and validation)
+        self.strings_status_label = self.theme.create_styled_label(
+            desc_frame,
+            "",
+            "small",
+            fg=self.theme.colors["text_secondary"]
+        )
+        self.strings_status_label.pack(side=tk.RIGHT)
+
     def _create_max_results_option(self, parent_frame: tk.Frame) -> None:
         """Create max Shodan results option."""
         max_results_container = tk.Frame(parent_frame)
@@ -396,7 +501,7 @@ class ScanDialog:
         # Label
         max_results_label = self.theme.create_styled_label(
             max_results_container,
-            "Max Shodan Results:",
+            "🔢 Max Shodan Results:",
             "body"
         )
         max_results_label.pack(anchor="w")
@@ -433,7 +538,7 @@ class ScanDialog:
         # Label
         recent_label = self.theme.create_styled_label(
             recent_container,
-            "Recent Hours Filter:",
+            "⏱️ Recent Hours Filter:",
             "body"
         )
         recent_label.pack(anchor="w")
@@ -470,7 +575,7 @@ class ScanDialog:
         # Label
         rescan_label = self.theme.create_styled_label(
             rescan_container,
-            "Rescan Options:",
+            "🔁 Rescan Options:",
             "body"
         )
         rescan_label.pack(anchor="w")
@@ -508,7 +613,7 @@ class ScanDialog:
 
         title_label = self.theme.create_styled_label(
             concurrency_container,
-            "Backend Concurrency:",
+            "🧵 Backend Concurrency:",
             "body"
         )
         title_label.pack(anchor="w")
@@ -597,7 +702,7 @@ class ScanDialog:
 
         title_label = self.theme.create_styled_label(
             delay_container,
-            "Rate Limit Delays (seconds):",
+            "🐢 Rate Limit Delays (seconds):",
             "body"
         )
         title_label.pack(anchor="w")
@@ -687,7 +792,7 @@ class ScanDialog:
         # Label
         api_label = self.theme.create_styled_label(
             api_container,
-            "API Key Override:",
+            "🔑 API Key Override:",
             "body"
         )
         api_label.pack(anchor="w")
@@ -718,7 +823,7 @@ class ScanDialog:
 
     def _create_config_section(self) -> None:
         """Create configuration file section."""
-        config_frame = tk.Frame(self.dialog)
+        config_frame = tk.Frame(self.content_frame)
         self.theme.apply_to_widget(config_frame, "card")
         config_frame.pack(fill=tk.X, padx=20, pady=(0, 5))
         
@@ -763,24 +868,28 @@ class ScanDialog:
         button_frame = tk.Frame(self.dialog)
         self.theme.apply_to_widget(button_frame, "main_window")
         button_frame.pack(fill=tk.X, padx=20, pady=(5, 15))
+
+        # Button group aligned to the right
+        buttons_container = tk.Frame(button_frame)
+        self.theme.apply_to_widget(buttons_container, "main_window")
+        buttons_container.pack(side=tk.RIGHT)
         
-        # Cancel button (left)
         cancel_button = tk.Button(
-            button_frame,
+            buttons_container,
             text="Cancel",
             command=self._cancel_scan
         )
         self.theme.apply_to_widget(cancel_button, "button_secondary")
-        cancel_button.pack(side=tk.LEFT)
+        cancel_button.pack(side=tk.LEFT, padx=(0, 10))
         
         # Start scan button (right)
         start_button = tk.Button(
-            button_frame,
+            buttons_container,
             text="🚀 Start Scan",
             command=self._start_scan
         )
         self.theme.apply_to_widget(start_button, "button_primary")
-        start_button.pack(side=tk.RIGHT)
+        start_button.pack(side=tk.LEFT)
     
     def _setup_event_handlers(self) -> None:
         """Setup event handlers."""
@@ -793,13 +902,18 @@ class ScanDialog:
         # Country input validation
         self.country_var.trace_add("write", self._validate_country_input)
 
+        # Search strings validation
+        self.search_strings_var.trace_add("write", self._validate_search_strings_input)
+
         # Advanced options validation
         self.max_results_var.trace_add("write", self._validate_max_results)
         self.recent_hours_var.trace_add("write", self._validate_recent_hours)
     
-    def _focus_country_field(self) -> None:
-        """Set focus to country input field."""
-        self.country_entry.focus_set()
+    def _focus_initial_field(self) -> None:
+        """Set initial focus to search strings (fallback to country)."""
+        target_entry = self.search_strings_entry or self.country_entry
+        if target_entry:
+            target_entry.focus_set()
 
     def _get_selected_region_countries(self) -> list[str]:
         """Get all country codes from selected regions."""
@@ -896,6 +1010,106 @@ class ScanDialog:
         upper_input = country_input.upper()
         if upper_input != country_input:
             self.country_var.set(upper_input)
+
+    def _parse_search_strings(self, strings_input: str) -> tuple[list[str], str]:
+        """
+        Parse comma-separated search strings, respecting quoted multi-word strings.
+
+        Args:
+            strings_input: Raw string input from user
+
+        Returns:
+            Tuple of (parsed_strings_list, error_message)
+            If error_message is empty, validation succeeded
+
+        Examples:
+            'Documents, Videos' → ['Documents', 'Videos']
+            'Documents, "My Files", Videos' → ['Documents', 'My Files', 'Videos']
+            '"Company Data", test-files' → ['Company Data', 'test-files']
+        """
+        if not strings_input.strip():
+            return [], ""  # Empty input is valid (no search strings)
+
+        try:
+            # Use CSV reader to properly handle quoted strings
+            csv_reader = csv.reader(io.StringIO(strings_input), quotechar='"', skipinitialspace=True)
+            parsed_strings = []
+
+            for row in csv_reader:
+                for string_item in row:
+                    clean_string = string_item.strip()
+                    if clean_string:  # Skip empty entries
+                        parsed_strings.append(clean_string)
+
+            if not parsed_strings:
+                return [], ""  # Empty result is valid
+
+            # Validate each string individually
+            for search_string in parsed_strings:
+                validation_error = self._validate_single_search_string(search_string)
+                if validation_error:
+                    return [], validation_error
+
+            # Check total count limit
+            if len(parsed_strings) > 20:
+                return [], f"Too many search strings ({len(parsed_strings)}). Maximum allowed: 20."
+
+            return parsed_strings, ""
+
+        except Exception as e:
+            return [], f"Invalid format: {str(e)}. Use comma-separated values with quotes for multi-word strings."
+
+    def _validate_single_search_string(self, search_string: str) -> str:
+        """
+        Validate a single search string.
+
+        Args:
+            search_string: Individual string to validate
+
+        Returns:
+            Error message if invalid, empty string if valid
+        """
+        # Check length limit
+        if len(search_string) > 100:
+            return f"String too long (max 100 chars): '{search_string[:30]}...'"
+
+        # Check for suspicious characters that might break Shodan queries
+        suspicious_chars = ['&', '|', ';', '(', ')', '[', ']', '{', '}']
+        for char in suspicious_chars:
+            if char in search_string:
+                return f"String contains unsupported character '{char}': '{search_string}'"
+
+        return ""  # Valid
+
+    def _validate_search_strings_input(self, *args) -> None:
+        """Validate search strings input in real-time."""
+        strings_input = self.search_strings_var.get()
+
+        # Parse and validate
+        parsed_strings, error_msg = self._parse_search_strings(strings_input)
+
+        # Update status display
+        self._update_strings_status(parsed_strings, error_msg)
+
+    def _update_strings_status(self, parsed_strings: list[str], error_msg: str) -> None:
+        """Update the strings status label with count and validation info."""
+        if error_msg:
+            # Show error in red
+            self.strings_status_label.configure(
+                text=f"❌ {error_msg}",
+                fg=self.theme.colors.get("error", "red")
+            )
+        elif parsed_strings:
+            # Show count and character total
+            total_chars = sum(len(s) for s in parsed_strings)
+            status_text = f"📊 {len(parsed_strings)} strings • {total_chars} characters"
+            self.strings_status_label.configure(
+                text=status_text,
+                fg=self.theme.colors.get("success", "green")
+            )
+        else:
+            # Clear status for empty input
+            self.strings_status_label.configure(text="")
 
     def _validate_max_results(self, *args) -> None:
         """Validate max results input."""
@@ -1031,6 +1245,12 @@ class ScanDialog:
         api_key = self.api_key_var.get().strip()
         api_key = api_key if api_key else None
 
+        # Handle search strings (parse and validate)
+        strings_input = self.search_strings_var.get().strip()
+        parsed_strings, strings_error = self._parse_search_strings(strings_input)
+        if strings_error:
+            raise ValueError(f"Invalid search strings: {strings_error}")
+
         discovery_concurrency = self._parse_positive_int(
             self.discovery_concurrency_var.get().strip(),
             "Discovery max concurrent hosts",
@@ -1067,6 +1287,7 @@ class ScanDialog:
                 self._settings_manager.set_setting('scan_dialog.rescan_all', rescan_all)
                 self._settings_manager.set_setting('scan_dialog.rescan_failed', rescan_failed)
                 self._settings_manager.set_setting('scan_dialog.api_key_override', api_key or '')
+                self._settings_manager.set_setting('scan_dialog.search_strings', strings_input)
                 self._settings_manager.set_setting('scan_dialog.discovery_max_concurrency', discovery_concurrency)
                 self._settings_manager.set_setting('scan_dialog.access_max_concurrency', access_concurrency)
                 self._settings_manager.set_setting('scan_dialog.rate_limit_delay', rate_limit_delay)
@@ -1090,6 +1311,7 @@ class ScanDialog:
             'rescan_all': rescan_all,
             'rescan_failed': rescan_failed,
             'api_key_override': api_key,
+            'search_strings': parsed_strings,
             'discovery_max_concurrent_hosts': discovery_concurrency,
             'access_max_concurrent_hosts': access_concurrency,
             'rate_limit_delay': rate_limit_delay,
@@ -1108,6 +1330,7 @@ class ScanDialog:
                 rescan_all = bool(self._settings_manager.get_setting('scan_dialog.rescan_all', False))
                 rescan_failed = bool(self._settings_manager.get_setting('scan_dialog.rescan_failed', False))
                 api_key = str(self._settings_manager.get_setting('scan_dialog.api_key_override', ''))
+                search_strings = str(self._settings_manager.get_setting('scan_dialog.search_strings', ''))
 
                 discovery_concurrency = self._settings_manager.get_setting('scan_dialog.discovery_max_concurrency', None)
                 access_concurrency = self._settings_manager.get_setting('scan_dialog.access_max_concurrency', None)
@@ -1120,6 +1343,7 @@ class ScanDialog:
                 self.rescan_all_var.set(rescan_all)
                 self.rescan_failed_var.set(rescan_failed)
                 self.api_key_var.set(api_key)
+                self.search_strings_var.set(search_strings)
 
                 if discovery_concurrency is not None:
                     self.discovery_concurrency_var.set(str(discovery_concurrency))
