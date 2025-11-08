@@ -2,14 +2,16 @@
 Template storage utility for ScanDialog presets.
 
 Provides lightweight save/load/delete helpers backed by JSON files stored
-in the user's ~/.smbseek/templates directory, plus convenience methods for
-remembering the last-used template via SettingsManager.
+in the user's ~/.smbseek/templates directory. Seeds that directory with
+curated defaults shipped in the repo and remembers the last-used template
+via SettingsManager when available.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +19,7 @@ from typing import Dict, List, Optional, Any
 
 
 TEMPLATE_DIRNAME = ".smbseek/templates"
+DEFAULT_SEED_DIR = Path(__file__).resolve().parents[1] / "templates" / "default_scan_templates"
 
 
 @dataclass
@@ -33,10 +36,13 @@ class TemplateStore:
 
     def __init__(self,
                  settings_manager: Optional[Any] = None,
-                 base_dir: Optional[Path] = None) -> None:
+                 base_dir: Optional[Path] = None,
+                 seed_dir: Optional[Path] = None) -> None:
         self.settings_manager = settings_manager
         self.templates_dir = self._resolve_dir(base_dir)
+        self.seed_dir = seed_dir or DEFAULT_SEED_DIR
         self.templates_dir.mkdir(parents=True, exist_ok=True)
+        self._seed_default_templates()
 
     def list_templates(self) -> List[ScanTemplate]:
         """Return all templates sorted by name (case-insensitive)."""
@@ -134,3 +140,17 @@ class TemplateStore:
         if not slug:
             slug = f"template-{int(time.time())}"
         return slug
+
+    def _seed_default_templates(self) -> None:
+        """Copy bundled templates into the user directory if they're missing."""
+        if not self.seed_dir or not self.seed_dir.exists():
+            return
+
+        for template_file in self.seed_dir.glob("*.json"):
+            target = self.templates_dir / template_file.name
+            if target.exists():
+                continue
+            try:
+                shutil.copy(template_file, target)
+            except Exception as exc:
+                print(f"Warning: Failed to seed template {template_file.name}: {exc}")

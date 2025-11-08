@@ -6,6 +6,7 @@ All notable changes to the SMBSeek GUI project will be documented in this file.
 
 ### Added
 - **Scan Templates**: Start New Scan dialog now includes a Templates toolbar so you can save/load per-scan parameter sets (search strings, regions, filters, execution tuning) without touching the global SMBSeek config file.
+  - Ships with six curated presets (stored under `templates/default_scan_templates/`) seeded from secybr’s public Shodan dork tutorials to showcase real-world use cases on first launch.
 
 ### Changed
 - **Scan Dialog Layout Refresh**: Start New Scan dialog now opens at 1210x825 with a responsive two-column layout that splits targeting controls (search strings, country, regions, filters) on the left and execution controls (rescan, concurrency, rate limits, API key) on the right for greatly reduced scrolling.

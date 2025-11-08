@@ -76,8 +76,10 @@ xsmbseek uses a dual configuration system:
 
 ### Scan Templates
 - Use the **Start New Scan** dialog’s Templates toolbar to save your favorite combinations of search strings, regions, and execution settings.
-- Templates are stored per-user under `~/.smbseek/templates/` and applying one simply repopulates the dialog fields (your underlying SMBSeek config stays untouched).
-- Save as many templates as you like, overwrite them when requirements change, or delete them from the same dropdown without leaving the scan flow.
+- Templates live under `~/.smbseek/templates/`; applying one simply repopulates the dialog fields (your underlying SMBSeek config stays untouched).
+- We ship six curated presets (Anonymous SMB Shares, Domain Controller Null Sessions, QuickBooks Network Shares, NAS Exposure Sweep, Small Business Media Servers, Legacy SMBv1 Lab Sweep) seeded from `templates/default_scan_templates/` so fresh installs have useful examples immediately.
+- These presets were inspired by the excellent [secybr Shodan tutorials](https://secybr.com/posts/shodan-tutorials-for-best-practicies/)—thanks to their team for sharing practical dorks with the community.
+- Save as many of your own templates as you like, overwrite them when requirements change, or delete them from the same dropdown without leaving the scan flow. (Note: the “Legacy SMBv1 Lab Sweep” preset assumes your SMBSeek backend is launched with whatever SMB1 support flags your environment requires.)
 
 ##  Architecture
 
