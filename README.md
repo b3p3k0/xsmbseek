@@ -96,6 +96,7 @@ xsmbseek uses a dual configuration system:
 - Results are cached per host under `~/.smbseek/probes/` and rendered as an ASCII tree within the detail view so you can spot interesting data at a glance.
 - The probe reuses the anonymous/guest credentials that succeeded during the scan and relies on the [`impacket`](https://github.com/SecureAuthCorp/impacket) library for SMB enumeration—install it in the GUI environment to enable this feature.
 - Each probe also runs a lightweight indicator scan. Any filenames that match entries under `security.ransomware_indicators` in the backend config are listed in the detail view (“Indicators Detected”) and flip the probe column to ✖ so compromised hosts remain red across sessions.
+- Want the exact patterns we ship (plus their CVE/report references)? See [`docs/RANSOMWARE_INDICATORS.md`](docs/RANSOMWARE_INDICATORS.md).
 
 ##  Architecture
 
