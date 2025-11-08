@@ -86,7 +86,9 @@ class DashboardWidget:
         
         # Progress tracking
         self.current_progress_summary = ""
-        self.status_text = tk.StringVar()
+        self.status_text = tk.StringVar(value="Loading dashboard summary...")
+        self._status_static_mode = True  # Keep status label static post-initialization
+        self._status_summary_initialized = False
 
         # Live log viewer state
         self.log_queue: "queue.Queue[str]" = queue.Queue()
@@ -241,7 +243,6 @@ class DashboardWidget:
 
         self._build_log_viewer()
         self._build_status_footer()
-        self.status_text.set("Ready | No active scans")
 
     def _configure_log_tags(self) -> None:
         """Configure text tags used for ANSI-colored output."""
@@ -585,9 +586,9 @@ class DashboardWidget:
         return extra_lines
     
     def _update_progress_summary(self, summary: Optional[str], detail: Optional[str] = None) -> None:
-        """Update scan status text without using the old banner."""
-        summary_text = summary.strip() if summary else ""
-        detail_text = detail.strip() if detail else ""
+        """Cache scan progress summary for dialogs; UI status label stays static."""
+        summary_text = summary.strip() if isinstance(summary, str) else (summary or "")
+        detail_text = detail.strip() if isinstance(detail, str) else (detail or "")
         parts = []
         if summary_text:
             parts.append(summary_text)
@@ -595,7 +596,6 @@ class DashboardWidget:
             parts.append(detail_text)
         status_body = " - ".join(parts) if parts else "In progress"
         self.current_progress_summary = status_body
-        self.status_text.set(f"Scanning: {status_body}")
     
     def _log_status_event(self, message: str) -> None:
         """Append controller-level status lines to the console output."""
@@ -615,7 +615,6 @@ class DashboardWidget:
     def _reset_scan_status(self) -> None:
         """Return dashboard status indicators to the ready state."""
         self.current_progress_summary = ""
-        self.status_text.set("Ready | No active scans")
     
     def _refresh_dashboard_data(self) -> None:
         """
@@ -658,6 +657,9 @@ class DashboardWidget:
 
     def _update_status_display(self, summary: Dict[str, Any]) -> None:
         """Update status bar information."""
+        if self._status_static_mode and self._status_summary_initialized:
+            return
+
         # Main status
         total_servers = summary.get("total_servers", 0)
         servers_with_accessible_shares = summary.get("servers_with_accessible_shares", 0)
@@ -674,8 +676,13 @@ class DashboardWidget:
         else:
             formatted_time = "Never"
 
-        status_text = f"Ready | Last Scan: {formatted_time} | DB: {total_servers:,} servers, {servers_with_accessible_shares:,} with accessible shares, {total_shares:,} total shares"
+        status_text = (
+            f"Last Scan: {formatted_time} | "
+            f"DB: {total_servers:,} servers, {servers_with_accessible_shares:,} with accessible shares, "
+            f"{total_shares:,} total shares"
+        )
         self.status_text.set(status_text)
+        self._status_summary_initialized = True
         
         # Update time
         if self.last_update:
@@ -686,6 +693,7 @@ class DashboardWidget:
         """Handle dashboard refresh errors gracefully."""
         error_message = f"Dashboard refresh failed: {str(error)}"
         self.status_text.set(f"Error: {error_message}")
+        self._status_summary_initialized = False
         
         # If database is unavailable, enable mock mode
         if "Database" in str(error) or "database" in str(error):
