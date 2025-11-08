@@ -90,6 +90,11 @@ class SettingsManager:
                 'share_access_delay': 1,
                 'remember_api_key': False
             },
+            'probe': {
+                'max_directories_per_share': 3,
+                'max_files_per_directory': 5,
+                'share_timeout_seconds': 10
+            },
             'templates': {
                 'last_used': None
             },

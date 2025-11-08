@@ -27,6 +27,7 @@
 - Replace emoji icons in headings with a consistent monochrome glyph set to keep the dialog feeling professional while preserving quick recognition.
 
 - **Scan Templates Toolbar**: Added `TemplateStore` helper (`~/.smbseek/templates`) plus a Templates dropdown/Save/Delete controls in `ScanDialog`. Saves a raw form snapshot (search strings, manual country codes, region toggles, concurrency/delay fields, API override) and reapplies it on selection. Last-used template slug persists via `SettingsManager.templates.last_used`. On initialization we seed six curated JSON presets from `templates/default_scan_templates/` (derived from [secybr’s Shodan tutorial collection](https://secybr.com/posts/shodan-tutorials-for-best-practicies/)) so first-run users see practical examples. The “Legacy SMBv1 Lab Sweep” preset assumes SMBSeek is launched with whatever SMB1 flag your deployment requires before running.
+- **Server Detail Probe**: Added a Probe dialog to `server_list_window/details.py`. It uses `impacket.SMBConnection` with anonymous creds to list the first N directories per accessible share (default 3) and the first M files per directory (default 5). Snapshots are cached as JSON under `~/.smbseek/probes/<ip>.json` and rendered as ASCII trees inside the detail view; limits and per-share timeout (default 10 s) live in `SettingsManager.probe` and can be adjusted before launching each probe.
 
 **Planning Template Reference (Nov 8, 2025)**
 - Example (Status Refresh Plan):

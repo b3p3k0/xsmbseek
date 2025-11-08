@@ -467,7 +467,7 @@ class ServerListWindow:
 
     def _show_server_detail_popup(self, server_data: Dict[str, Any]) -> None:
         """Show server detail popup using details module."""
-        details.show_server_detail_popup(self.window, server_data, self.theme)
+        details.show_server_detail_popup(self.window, server_data, self.theme, self.settings_manager)
 
     def _export_selected_servers(self) -> None:
         """Export selected servers using export module."""

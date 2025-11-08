@@ -83,6 +83,11 @@ xsmbseek uses a dual configuration system:
 - These presets were inspired by the excellent [secybr Shodan tutorials](https://secybr.com/posts/shodan-tutorials-for-best-practicies/)—thanks to their team for sharing practical dorks with the community.
 - Save as many of your own templates as you like, overwrite them when requirements change, or delete them from the same dropdown without leaving the scan flow. (Note: the “Legacy SMBv1 Lab Sweep” preset assumes your SMBSeek backend is launched with whatever SMB1 support flags your environment requires.)
 
+### Probe Accessible Shares
+- Open **Server List → Details** and click the **Probe** button to review probe limits and launch a quick enumeration of each accessible share without downloading files. The probe walks the first 3 directories per share and the first 5 files per directory by default (tweak these in the dialog before starting).
+- Results are cached per host under `~/.smbseek/probes/` and rendered as an ASCII tree within the detail view so you can spot interesting data at a glance.
+- The probe reuses the anonymous/guest credentials that succeeded during the scan and relies on the [`impacket`](https://github.com/SecureAuthCorp/impacket) library for SMB enumeration—install it in the GUI environment to enable this feature.
+
 ##  Architecture
 
 ### Project Structure

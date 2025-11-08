@@ -9,10 +9,14 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import subprocess
 import platform
-from typing import Dict, Any
+import threading
+from typing import Dict, Any, List, Optional
+
+from gui.utils import probe_cache, probe_runner
+from gui.utils.probe_runner import ProbeError
 
 
-def show_server_detail_popup(parent_window, server_data, theme):
+def show_server_detail_popup(parent_window, server_data, theme, settings_manager=None):
     """
     Show server detail popup window.
 
@@ -40,18 +44,48 @@ def show_server_detail_popup(parent_window, server_data, theme):
     text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-    # Format server details
-    details = _format_server_details(server_data)
+    # Initial render (includes cached probe data if available)
+    ip_address = server_data.get('ip_address', 'Unknown')
+    cached_probe = probe_cache.load_probe_result(ip_address) if ip_address else None
+    _render_server_details(text_widget, server_data, cached_probe)
 
-    # Insert details
-    text_widget.configure(state=tk.NORMAL)
-    text_widget.insert(tk.END, details)
-    text_widget.configure(state=tk.DISABLED)
+    # Status label for probe feedback
+    status_var = tk.StringVar(value="")
+    status_label = theme.create_styled_label(
+        detail_window,
+        "",
+        "small",
+        fg=theme.colors["text_secondary"]
+    )
+    status_label.configure(textvariable=status_var)
+    status_label.pack(pady=(0, 5))
 
     # Button frame for Explore and Close buttons
     button_frame = tk.Frame(detail_window)
     theme.apply_to_widget(button_frame, "main_window")
     button_frame.pack(pady=(0, 10))
+
+    probe_state = {
+        "running": False,
+        "latest": cached_probe
+    }
+
+    probe_button = tk.Button(
+        button_frame,
+        text="Probe",
+        command=lambda: _open_probe_dialog(
+            detail_window,
+            server_data,
+            text_widget,
+            status_var,
+            probe_state,
+            settings_manager,
+            theme,
+            probe_button
+        )
+    )
+    theme.apply_to_widget(probe_button, "button_secondary")
+    probe_button.pack(side=tk.LEFT, padx=(0, 10))
 
     # Explore button
     explore_button = tk.Button(
@@ -183,3 +217,238 @@ def _format_server_details(server: Dict[str, Any]) -> str:
     """
 
     return details
+
+
+def _render_server_details(
+    text_widget: tk.Text,
+    server: Dict[str, Any],
+    probe_result: Optional[Dict[str, Any]]
+) -> None:
+    """Render server base details plus probe section."""
+    base_text = _format_server_details(server)
+    probe_text = _format_probe_section(probe_result)
+
+    text_widget.configure(state=tk.NORMAL)
+    text_widget.delete("1.0", tk.END)
+    text_widget.insert(tk.END, base_text)
+    text_widget.insert(tk.END, "\n")
+    text_widget.insert(tk.END, probe_text)
+    text_widget.configure(state=tk.DISABLED)
+
+
+def _format_probe_section(probe_result: Optional[Dict[str, Any]]) -> str:
+    """Return formatted probe section text."""
+    if not probe_result:
+        return "🔍 Probe:\n   No probe has been run for this host yet.\n"
+
+    limits = probe_result.get("limits", {})
+    max_dirs = limits.get("max_directories")
+    max_files = limits.get("max_files")
+    timeout = limits.get("timeout_seconds")
+
+    lines: List[str] = [
+        "🔍 Probe Snapshot:",
+        f"   Run: {probe_result.get('run_at', 'Unknown')}",
+        f"   Limits: {max_dirs or '?'} dirs / {max_files or '?'} files per share | Timeout: {timeout or '?'}s"
+    ]
+
+    shares = probe_result.get("shares", [])
+    if shares:
+        for share in shares:
+            share_name = share.get("share", "Unknown Share")
+            lines.append(f"   Share: {share_name}")
+            directories = share.get("directories", [])
+            if not directories:
+                lines.append("      (no directories returned)")
+            for directory in directories:
+                dir_name = directory.get("name", "")
+                lines.append(f"      📁 {dir_name}/")
+                files = directory.get("files", [])
+                if files:
+                    for file_name in files:
+                        lines.append(f"         • {file_name}")
+                    if directory.get("files_truncated"):
+                        lines.append("         … additional files not shown")
+                else:
+                    lines.append("         (no files listed)")
+            if share.get("directories_truncated"):
+                lines.append("      … additional directories not shown")
+    else:
+        lines.append("   No shares were successfully probed.")
+
+    errors = probe_result.get("errors", [])
+    if errors:
+        lines.append("\n   ⚠ Probe Errors:")
+        for err in errors:
+            share = err.get("share", "Unknown share")
+            message = err.get("message", "Unknown error")
+            lines.append(f"      {share}: {message}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _parse_accessible_shares(raw_value: Optional[str]) -> List[str]:
+    if not raw_value:
+        return []
+    return [share.strip() for share in raw_value.split(',') if share.strip()]
+
+
+def _load_probe_config(settings_manager) -> Dict[str, int]:
+    """Load probe limits from settings (fall back to defaults)."""
+    defaults = {
+        "max_directories": 3,
+        "max_files": 5,
+        "timeout_seconds": 10
+    }
+    if not settings_manager:
+        return defaults
+
+    try:
+        max_dirs = int(settings_manager.get_setting('probe.max_directories_per_share', defaults["max_directories"]))
+        max_files = int(settings_manager.get_setting('probe.max_files_per_directory', defaults["max_files"]))
+        timeout = int(settings_manager.get_setting('probe.share_timeout_seconds', defaults["timeout_seconds"]))
+    except Exception:
+        return defaults
+
+    return {
+        "max_directories": max(1, max_dirs),
+        "max_files": max(1, max_files),
+        "timeout_seconds": max(1, timeout)
+    }
+
+
+def _start_probe(
+    detail_window: tk.Toplevel,
+    server_data: Dict[str, Any],
+    text_widget: tk.Text,
+    status_var: tk.StringVar,
+    probe_state: Dict[str, Any],
+    settings_manager,
+    probe_button: Optional[tk.Button],
+    config_override: Optional[Dict[str, int]] = None
+) -> None:
+    """Trigger background probe run."""
+    if probe_state.get("running"):
+        return
+
+    ip_address = server_data.get('ip_address')
+    if not ip_address:
+        messagebox.showwarning("Probe Unavailable", "Server IP address is missing.")
+        return
+
+    accessible_shares = _parse_accessible_shares(server_data.get('accessible_shares_list', ''))
+    if not accessible_shares:
+        messagebox.showinfo("Probe", "No accessible shares to probe for this host.")
+        return
+
+    config = config_override or _load_probe_config(settings_manager)
+    status_var.set("Probing accessible shares…")
+    probe_state["running"] = True
+    if probe_button:
+        probe_button.configure(state=tk.DISABLED)
+
+    def worker():
+        try:
+            result = probe_runner.run_probe(
+                ip_address,
+                accessible_shares,
+                max_directories=config["max_directories"],
+                max_files=config["max_files"],
+                timeout_seconds=config["timeout_seconds"]
+            )
+            probe_cache.save_probe_result(ip_address, result)
+
+            def on_success():
+                probe_state["running"] = False
+                probe_state["latest"] = result
+                status_var.set(f"Probe completed at {result.get('run_at', 'unknown')}")
+                if probe_button:
+                    probe_button.configure(state=tk.NORMAL)
+                _render_server_details(text_widget, server_data, result)
+
+            detail_window.after(0, on_success)
+        except Exception as exc:
+
+            def on_error():
+                probe_state["running"] = False
+                if probe_button:
+                    probe_button.configure(state=tk.NORMAL)
+                status_var.set("Probe failed.")
+                messagebox.showerror("Probe Failed", str(exc))
+
+            detail_window.after(0, on_error)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _open_probe_dialog(
+    parent_window: tk.Toplevel,
+    server_data: Dict[str, Any],
+    text_widget: tk.Text,
+    status_var: tk.StringVar,
+    probe_state: Dict[str, Any],
+    settings_manager,
+    theme,
+    probe_button: Optional[tk.Button]
+) -> None:
+    """Show settings + launch dialog for probes."""
+    if probe_state.get("running"):
+        messagebox.showinfo("Probe Running", "A probe is already in progress.")
+        return
+
+    config = _load_probe_config(settings_manager)
+
+    dialog = tk.Toplevel(parent_window)
+    dialog.title("Probe Accessible Shares")
+    dialog.transient(parent_window)
+    dialog.grab_set()
+
+    if theme:
+        theme.apply_to_widget(dialog, "main_window")
+
+    tk.Label(dialog, text="Max directories per share:").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
+    dirs_var = tk.IntVar(value=config["max_directories"])
+    tk.Entry(dialog, textvariable=dirs_var, width=10).grid(row=0, column=1, padx=10, pady=(10, 5))
+
+    tk.Label(dialog, text="Max files per directory:").grid(row=1, column=0, sticky="w", padx=10, pady=5)
+    files_var = tk.IntVar(value=config["max_files"])
+    tk.Entry(dialog, textvariable=files_var, width=10).grid(row=1, column=1, padx=10, pady=5)
+
+    tk.Label(dialog, text="Per-share timeout (seconds):").grid(row=2, column=0, sticky="w", padx=10, pady=5)
+    timeout_var = tk.IntVar(value=config["timeout_seconds"])
+    tk.Entry(dialog, textvariable=timeout_var, width=10).grid(row=2, column=1, padx=10, pady=5)
+
+    def start_probe_from_dialog():
+        try:
+            new_config = {
+                "max_directories": max(1, int(dirs_var.get())),
+                "max_files": max(1, int(files_var.get())),
+                "timeout_seconds": max(1, int(timeout_var.get()))
+            }
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter valid integers for all fields.")
+            return
+
+        if settings_manager:
+            settings_manager.set_setting('probe.max_directories_per_share', new_config["max_directories"])
+            settings_manager.set_setting('probe.max_files_per_directory', new_config["max_files"])
+            settings_manager.set_setting('probe.share_timeout_seconds', new_config["timeout_seconds"])
+
+        dialog.destroy()
+        _start_probe(
+            parent_window,
+            server_data,
+            text_widget,
+            status_var,
+            probe_state,
+            settings_manager,
+            probe_button,
+            config_override=new_config
+        )
+
+    button_frame = tk.Frame(dialog)
+    button_frame.grid(row=3, column=0, columnspan=2, pady=10)
+
+    tk.Button(button_frame, text="Start Probe", command=start_probe_from_dialog).pack(side=tk.LEFT, padx=(0, 5))
+    tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT)
