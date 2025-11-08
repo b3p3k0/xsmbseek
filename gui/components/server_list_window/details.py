@@ -10,14 +10,14 @@ from tkinter import ttk, messagebox
 import subprocess
 import platform
 import threading
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Sequence
 
-from gui.utils import probe_cache, probe_runner
+from gui.utils import probe_cache, probe_runner, probe_patterns
 from gui.utils.probe_runner import ProbeError
 
 
 def show_server_detail_popup(parent_window, server_data, theme, settings_manager=None,
-                             probe_status_callback=None):
+                             probe_status_callback=None, indicator_patterns: Optional[Sequence[probe_patterns.IndicatorPattern]] = None):
     """
     Show server detail popup window.
 
@@ -48,6 +48,8 @@ def show_server_detail_popup(parent_window, server_data, theme, settings_manager
     # Initial render (includes cached probe data if available)
     ip_address = server_data.get('ip_address', 'Unknown')
     cached_probe = probe_cache.load_probe_result(ip_address) if ip_address else None
+    if cached_probe and indicator_patterns:
+        probe_patterns.attach_indicator_analysis(cached_probe, indicator_patterns)
     _render_server_details(text_widget, server_data, cached_probe)
 
     # Status label for probe feedback
@@ -68,7 +70,8 @@ def show_server_detail_popup(parent_window, server_data, theme, settings_manager
 
     probe_state = {
         "running": False,
-        "latest": cached_probe
+        "latest": cached_probe,
+        "indicator_patterns": indicator_patterns or []
     }
 
     probe_button = tk.Button(
@@ -275,6 +278,20 @@ def _format_probe_section(probe_result: Optional[Dict[str, Any]]) -> str:
     else:
         lines.append("   No shares were successfully probed.")
 
+    analysis = probe_result.get("indicator_analysis") if probe_result else None
+    if analysis:
+        matches = analysis.get("matches", [])
+        if matches:
+            lines.append("\n   ☠ Indicators Detected:")
+            for match in matches[:5]:
+                indicator = match.get("indicator", "Indicator")
+                path = match.get("path", "(unknown path)")
+                lines.append(f"      {indicator} → {path}")
+            if len(matches) > 5:
+                lines.append(f"      … {len(matches) - 5} additional hits")
+        else:
+            lines.append("\n   ✅ No ransomware indicators detected in sampled paths.")
+
     errors = probe_result.get("errors", [])
     if errors:
         lines.append("\n   ⚠ Probe Errors:")
@@ -343,6 +360,7 @@ def _start_probe(
         return
 
     config = config_override or _load_probe_config(settings_manager)
+    indicator_patterns = probe_state.get("indicator_patterns") or []
     status_var.set("Probing accessible shares…")
     probe_state["running"] = True
     if probe_button:
@@ -357,17 +375,24 @@ def _start_probe(
                 max_files=config["max_files"],
                 timeout_seconds=config["timeout_seconds"]
             )
+            analysis = probe_patterns.attach_indicator_analysis(result, indicator_patterns)
             probe_cache.save_probe_result(ip_address, result)
+            issue_detected = bool(analysis.get("is_suspicious"))
 
             def on_success():
                 probe_state["running"] = False
                 probe_state["latest"] = result
-                status_var.set(f"Probe completed at {result.get('run_at', 'unknown')}")
+                if issue_detected:
+                    status_var.set(
+                        f"Probe flagged ransomware indicators at {result.get('run_at', 'unknown')}"
+                    )
+                else:
+                    status_var.set(f"Probe completed at {result.get('run_at', 'unknown')}")
                 if probe_button:
                     probe_button.configure(state=tk.NORMAL)
                 _render_server_details(text_widget, server_data, result)
                 if probe_status_callback:
-                    probe_status_callback(ip_address, 'clean')
+                    probe_status_callback(ip_address, 'issue' if issue_detected else 'clean')
 
             detail_window.after(0, on_success)
         except Exception as exc:

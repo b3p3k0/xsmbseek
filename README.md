@@ -82,7 +82,7 @@ xsmbseek uses a dual configuration system:
 - **SMBSeek configuration**: Handled by SMBSeek itself (`smbseek/conf/config.json`)
 
 ### Server List Enhancements
-- Favorite (★), Avoid (☠), and Probe (🧪) columns sit at the front of the server table. The Probe indicator shows ○ when a host hasn’t been probed yet, △ once a probe snapshot exists, and ✖ is reserved for future “issue detected” states.
+- Favorite (★), Avoid (☠), and Probe (🧪) columns sit at the front of the server table. The Probe indicator shows ○ when a host hasn’t been probed yet, △ once a probe snapshot exists with no ransomware hits, and ✖ when returned filenames match indicators defined in `smbseek/conf/config.json` (e.g., `HOW_TO_DECRYPT_FILES.txt` or `README-ID-*.txt`).
 
 ### Scan Templates
 - Use the **Start New Scan** dialog’s Templates toolbar to save your favorite combinations of search strings, regions, and execution settings.
@@ -95,6 +95,7 @@ xsmbseek uses a dual configuration system:
 - Open **Server List → Details** and click the **Probe** button to review probe limits and launch a quick enumeration of each accessible share without downloading files. The probe walks the first 3 directories per share and the first 5 files per directory by default (tweak these in the dialog before starting).
 - Results are cached per host under `~/.smbseek/probes/` and rendered as an ASCII tree within the detail view so you can spot interesting data at a glance.
 - The probe reuses the anonymous/guest credentials that succeeded during the scan and relies on the [`impacket`](https://github.com/SecureAuthCorp/impacket) library for SMB enumeration—install it in the GUI environment to enable this feature.
+- Each probe also runs a lightweight indicator scan. Any filenames that match entries under `security.ransomware_indicators` in the backend config are listed in the detail view (“Indicators Detected”) and flip the probe column to ✖ so compromised hosts remain red across sessions.
 
 ##  Architecture
 

@@ -29,7 +29,7 @@ except ImportError:
 
 # Import modular components
 from . import export, details, filters, table
-from gui.utils import probe_cache
+from gui.utils import probe_cache, probe_patterns
 
 
 class ServerListWindow:
@@ -57,6 +57,8 @@ class ServerListWindow:
         self.window_data = window_data or {}
         self.settings_manager = settings_manager
         self.probe_status_map = {}
+        self.ransomware_indicators = []
+        self.indicator_patterns = []
 
         # Favorites and avoid functionality
         self.favorites_only = tk.BooleanVar()
@@ -120,6 +122,9 @@ class ServerListWindow:
 
         if self.settings_manager:
             self.probe_status_map = self.settings_manager.get_probe_status_map()
+            self._load_indicator_patterns()
+        else:
+            self._load_indicator_patterns()
 
     def _create_window(self) -> None:
         """Create the server list window."""
@@ -148,6 +153,19 @@ class ServerListWindow:
 
         # Bind events
         self._setup_event_handlers()
+
+    def _load_indicator_patterns(self) -> None:
+        """Load ransomware indicator patterns from SMBSeek config."""
+        config_path = None
+        if self.settings_manager:
+            config_path = self.settings_manager.get_setting('backend.config_path', None)
+            if not config_path:
+                try:
+                    config_path = self.settings_manager.get_smbseek_config_path()
+                except Exception:
+                    config_path = None
+        self.ransomware_indicators = probe_patterns.load_ransomware_indicators(config_path)
+        self.indicator_patterns = probe_patterns.compile_indicator_patterns(self.ransomware_indicators)
 
     def _center_window(self) -> None:
         """Center window on parent."""
@@ -479,7 +497,8 @@ class ServerListWindow:
             server_data,
             self.theme,
             self.settings_manager,
-            probe_status_callback=self._handle_probe_status_update
+            probe_status_callback=self._handle_probe_status_update,
+            indicator_patterns=self.indicator_patterns
         )
 
     def _export_selected_servers(self) -> None:
@@ -522,12 +541,24 @@ class ServerListWindow:
         if not ip_address:
             return 'unprobed'
 
-        status = self.settings_manager.get_probe_status(ip_address)
-        if status == 'unprobed':
-            cache_path = probe_cache.get_cache_path(ip_address)
-            if cache_path.exists():
-                status = 'clean'
-                self.settings_manager.set_probe_status(ip_address, status)
+        cached_result = probe_cache.load_probe_result(ip_address)
+        derived_status = 'unprobed'
+        if cached_result:
+            if self.indicator_patterns:
+                analysis = probe_patterns.attach_indicator_analysis(cached_result, self.indicator_patterns)
+            else:
+                analysis = {"is_suspicious": False}
+            if analysis.get('is_suspicious'):
+                derived_status = 'issue'
+            else:
+                derived_status = 'clean'
+
+        stored_status = self.settings_manager.get_probe_status(ip_address)
+        status = derived_status if derived_status != 'unprobed' else stored_status
+
+        if status != stored_status:
+            self.settings_manager.set_probe_status(ip_address, status)
+
         self.probe_status_map[ip_address] = status
         return status
 

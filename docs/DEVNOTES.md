@@ -31,6 +31,13 @@
 - **Security Assessment Cleanup**: Removed the dormant "Security Assessment" section from the server detail text to keep the dialog focused on share/probe data.
 - **Server List Probe Indicator**: Added a 🧪 column (○ unprobed / △ probed / ✖ reserved) that reads from `SettingsManager.probe.status_by_ip`; probe completions update the setting and refresh the table immediately.
 
+### November 9, 2025 - Ransomware Indicator Matching
+- **Config-Driven Indicators**: GUI now reads `security.ransomware_indicators` from the backend `conf/config.json` (default entries cover WannaCry, LockBit, Cactus, BlackCat, Stop/Djvu). Updating that list is the only step required to teach the UI about new ransom-note filenames.
+- **Probe Analysis Helper**: Added `gui/utils/probe_patterns.py` with helpers to load indicators, translate wildcards (e.g., `README-ID-*.txt`) into regexes, and scan the nested probe snapshot structure (share → directory → files).
+- **Detail View Alerting**: `server_list_window/details.py` attaches `indicator_analysis` to every probe result and renders an "Indicators Detected" block listing up to five hits with share paths. Status label explicitly calls out when an IOC triggered the red state.
+- **Status Persistence**: `ServerListWindow` re-evaluates cached probes on load, sets `probe_status` to `'issue'` whenever a match exists, and writes the result back through `SettingsManager.probe.status_by_ip` so compromised hosts stay flagged across sessions.
+- **Unit Coverage**: Added `gui/tests/test_probe_patterns.py` covering config-loading, wildcard compilation, and snapshot evaluation to keep the matcher honest as we expand the indicator list.
+
 **Planning Template Reference (Nov 8, 2025)**
 - Example (Status Refresh Plan):
   - **Who:** `DashboardWidget` methods (`finish_scan_progress`, `_refresh_after_scan_completion`).

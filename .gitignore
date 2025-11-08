@@ -75,6 +75,8 @@ test_*.py
 !test_attribute_fixes.py
 !comprehensive_gui_audit.py  
 !validate_gui_safety.py
+!gui/tests/test_basic_functionality.py
+!gui/tests/test_probe_patterns.py
 
 # Development and implementation documentation
 *_IMPLEMENTATION.md
