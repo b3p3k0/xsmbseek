@@ -4,6 +4,8 @@
 
 xsmbseek provides a user-friendly GUI frontend that integrates with the SMBSeek security assessment toolkit as an external configurable dependency.
 
+> Built in partnership with human testers plus AI collaborators (Claude & Codex). Claude helped bootstrap the earlier scaffolding; Codex now co-maintains the workflow, UI polish, and documentation—huge thanks to both teams for the pairing magic.
+
 ##  Quick Start
 
 ### Prerequisites

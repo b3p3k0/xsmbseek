@@ -19,7 +19,8 @@ from typing import Dict, List, Optional, Any
 
 
 TEMPLATE_DIRNAME = ".smbseek/templates"
-DEFAULT_SEED_DIR = Path(__file__).resolve().parents[1] / "templates" / "default_scan_templates"
+# Repo layout: gui/utils/template_store.py → ../../templates/default_scan_templates
+DEFAULT_SEED_DIR = Path(__file__).resolve().parents[2] / "templates" / "default_scan_templates"
 
 
 @dataclass

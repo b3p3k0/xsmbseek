@@ -1,5 +1,5 @@
 {
-  "name": "Legacy SMBv1 Lab Sweep",
+  "name": "Legacy SMBv1 Lab Sweep [secybr]",
   "saved_at": null,
   "source": "Inspired by secybr Shodan tutorials",
   "notes": "Requires SMBSeek backend launched with SMB1 support enabled before running.",
