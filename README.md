@@ -1,3 +1,5 @@
+# Archived 20251108 
+merged into the [SMBSeek project](https://github.com/b3p3k0/smbseek)
 # xsmbseek - GUI Frontend for SMBSeek Security Toolkit
 
 **A cross-platform graphical interface for the SMBSeek security toolkit**
